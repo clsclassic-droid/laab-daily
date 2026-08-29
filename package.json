@@ -1,11 +1,11 @@
 {
   "name": "laab-daily-entry",
-  "version": "15.0.0",
-  "description": "หน้าจอบันทึกรายวัน ร้านอีสาน/ลาบ (สาขา LS)",
+  "version": "16.0.0",
+  "description": "หน้าจอบันทึกรายวัน ร้านอีสาน/ลาบ (สาขา LS) — ต่อ Supabase",
   "private": true,
   "scripts": {
     "build": "esbuild entry.jsx --bundle --minify --format=iife --define:process.env.NODE_ENV='\"production\"' --outfile=app.min.js"
   },
-  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1", "@supabase/supabase-js": "^2.45.0" },
   "devDependencies": { "esbuild": "^0.23.1" }
 }

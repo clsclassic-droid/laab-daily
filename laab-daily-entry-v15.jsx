@@ -1,10 +1,13 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { supabase, ENTITY } from "./supabaseClient.js";
 
 /* ═══════════════════════════════════════════════════════════
-   หน้าจอบันทึกรายวัน ร้านลาบ (LS) — v14
-   ตรงตามผังบัญชี laab_coa.xlsx และกฎแปลงรายการ 38 กฎ
+   หน้าจอบันทึกรายวัน ร้านลาบ (LS) — v15 (ต่อ Supabase)
+   ตรงตามผังบัญชี laab_coa.xlsx และกฎแปลงรายการ
 
    หลักการใหญ่: อะไรที่บอสหนึ่งพิมพ์เอง ระบบห้ามแตะ
+   ข้อมูลทั้งหมดเก็บใน Supabase (ฐานข้อมูลกลาง) แทน localStorage
+   ต้องต่อเน็ตตอนใช้งาน — พนักงาน 3 คนใช้พร้อมกันได้ ข้อมูลซิงค์กัน
    ═══════════════════════════════════════════════════════════ */
 
 /* ── วิธีจ่าย → บัญชีที่เครดิต (กฎข้อ 7-9, 13) ── */
@@ -16,6 +19,10 @@ const PAY = {
 };
 const PAY_KEYS = Object.keys(PAY);
 const NS = "ร้านก๋วยเตี๋ยว";
+
+/* แปลงวิธีจ่ายระหว่างโค้ดหน้าจอ (cash/transfer/credit/ns) ↔ ค่าที่เก็บใน Supabase (…/intercompany) */
+const PAY2DB = { cash: "cash", transfer: "transfer", credit: "credit", ns: "intercompany" };
+const DB2PAY = { cash: "cash", transfer: "transfer", credit: "credit", intercompany: "ns" };
 
 /* ── 13 หมวด จัดเป็น 3 กลุ่ม ── */
 const CATS = {
@@ -35,6 +42,7 @@ const CATS = {
   fuel:   { label: "ค่าน้ำมัน/ขนส่ง",    code: "6510-LS", name: "ค่าขนส่ง/ค่าน้ำมัน",          grp: "ops",   box: "daily" },
   gas:    { label: "ค่าแก๊ส",            code: "6140-LS", name: "ค่าแก๊ส",                     grp: "ops",   box: "daily" },
 };
+const CAT_BY_CODE = Object.fromEntries(Object.entries(CATS).map(([k, v]) => [v.code, k]));
 
 const BOXES = [
   { key: "fresh", title: "ของสด — ซื้อทุกวัน",         hint: "เนื้อ ผัก ของตลาด น้ำแข็ง" },
@@ -58,85 +66,8 @@ const ACC = {
 };
 const accName = (c) => ACC[c] || Object.values(CATS).find((x) => x.code === c)?.name || c;
 
-/* ── ร้านค้า + วิธีจ่ายปกติของแต่ละร้าน ──
-   ⚠ ข้อมูลสมมติ — ต้องแทนด้วยชื่อร้านจริง */
-const VENDORS0 = {
-  "เจ๊แดง": "cash",
-  "ลุงชิด": "cash",
-  "ร้านหมูสด": "cash",
-  "ร้านเป็ดพี่นก": "cash",
-  "ตลาดสด": "cash",
-  "เจ๊หมวย": "cash",
-  "ร้านชำ": "transfer",
-  [NS]: "ns",
-  "—": "cash",
-};
-
-/* [ชื่อ, หมวด, หน่วย, ร้าน, ราคาเมื่อวาน, จำนวนเมื่อวาน]
-   ⚠ ข้อมูลสมมติทั้งหมด — ต้องแทนด้วยของจริงทีละหมวด */
-const CATALOG = [
-  ["เนื้อออส", "meat", "กก.", "เจ๊แดง", 360, 3.5],
-  ["เนื้อคอย่าง", "meat", "กก.", "ลุงชิด", 310, 3],
-  ["ไส้อ่อน", "meat", "กก.", "ร้านหมูสด", 240, 2],
-  ["ผ้าขี้ริ้ว", "meat", "กก.", "เจ๊แดง", 155, 4],
-  ["สันนอก", "meat", "กก.", "เจ๊แดง", 275, 0],
-  ["ตับ", "meat", "กก.", "ร้านหมูสด", 150, 3],
-  ["หนังหมูหั่น", "meat", "กก.", "ร้านหมูสด", 80, 4],
-  ["ไส้เป็ด", "meat", "กก.", "ร้านเป็ดพี่นก", 190, 0],
-  ["เนื้อ (รับจากร้านก๋วยเตี๋ยว)", "meat", "กก.", NS, 340, 0],
-
-  ["ผักชี", "veg", "กก.", "ตลาดสด", 60, 2],
-  ["ต้นหอม", "veg", "กก.", "ตลาดสด", 50, 2],
-  ["พริกสด", "veg", "กก.", "ตลาดสด", 90, 2],
-  ["หอมแดง", "veg", "กก.", "ตลาดสด", 75, 0],
-  ["มะนาว", "veg", "กก.", "ตลาดสด", 50, 4],
-  ["ตะไคร้", "veg", "กก.", "ตลาดสด", 40, 0],
-
-  ["ข้าวสาร", "market", "กก.", NS, 32, 25],
-  ["ขนมจีน", "market", "กก.", "เจ๊หมวย", 45, 5],
-  ["น้ำจิ้ม", "market", "ถุง", NS, 30, 10],
-  ["น้ำปลา", "market", "ขวด", "ร้านชำ", 60, 0],
-  ["ข้าวคั่ว", "market", "กก.", "เจ๊หมวย", 80, 0],
-  ["พริกป่น", "market", "กก.", "ร้านชำ", 180, 0],
-
-  ["น้ำแข็ง", "bev", "ถุง", NS, 25, 6],
-  ["น้ำดื่ม", "bev", "แพ็ค", "ร้านชำ", 60, 4],
-  ["โซดา", "bev", "ลัง", "ร้านชำ", 180, 0],
-  ["น้ำอัดลม", "bev", "ลัง", "ร้านชำ", 210, 0],
-
-  ["ถุงพลาสติก", "bag", "แพ็ค", NS, 60, 5],
-  ["ยางรัด", "bag", "ถุง", NS, 30, 2],
-  ["กล่องข้าว", "bag", "แพ็ค", "ร้านชำ", 125, 0],
-  ["ถุงใส 3x5", "bag", "ห่อ", "ร้านชำ", 35, 0],
-  ["ถุงใส 6x9", "bag", "ห่อ", "ร้านชำ", 48, 0],
-  ["ถุงใส 7x11", "bag", "ห่อ", "ร้านชำ", 55, 0],
-  ["ถุงขุ่น 6x9", "bag", "ห่อ", "ร้านชำ", 45, 0],
-  ["ถุงหิ้ว 6x14", "bag", "ห่อ", "ร้านชำ", 40, 0],
-  ["ถุงหิ้ว 12x20", "bag", "ห่อ", "ร้านชำ", 65, 0],
-
-  ["แก้วน้ำพลาสติก", "cup", "ห่อ", "ร้านชำ", 70, 0],
-  ["ชามพลาสติก", "cup", "ห่อ", "ร้านชำ", 85, 0],
-  ["จานกระดาษ", "cup", "ห่อ", "ร้านชำ", 60, 0],
-
-  ["ช้อนพลาสติก", "straw", "ห่อ", NS, 45, 4],
-  ["หลอดสั้น", "straw", "ห่อ", "ร้านชำ", 28, 0],
-  ["หลอดยาว", "straw", "ห่อ", "ร้านชำ", 32, 0],
-  ["ไม้จิ้ม/ตะเกียบ", "straw", "ห่อ", "ร้านชำ", 40, 0],
-
-  ["ทิชชู", "tissue", "แพ็ค", "ร้านชำ", 55, 0],
-  ["กระดาษเช็ดมือ", "tissue", "แพ็ค", "ร้านชำ", 65, 0],
-
-  ["น้ำยาล้างจาน", "clean", "แกลลอน", NS, 100, 2],
-  ["ถุงขยะ", "clean", "แพ็ค", "ร้านชำ", 60, 0],
-  ["ฟองน้ำ", "clean", "แพ็ค", "ร้านชำ", 35, 0],
-
-  ["ค่าแรงคนงาน", "wage", "วัน", "—", 3500, 1],
-  ["ค่าข้าวพนักงาน", "meal", "วัน", "—", 300, 1],
-  ["ค่าน้ำมันไปตลาด", "fuel", "ครั้ง", "—", 0, 0],
-  ["ค่าแก๊ส", "gas", "ถัง", "ร้านชำ", 420, 0],
-];
-
-/* ราคาที่เคยซื้อจากแต่ละร้าน (ปุ่ม "เทียบ") — ข้อมูลสมมติ */
+/* ราคาที่เคยซื้อจากแต่ละร้าน (ปุ่ม "เทียบ") — ยังเป็นข้อมูลสมมติ ผูกกับชื่อของ
+   ⚠ ค่อยแทนด้วยของจริงทีหลัง (ตอนนี้ยังไม่ใช่จุดสำคัญของงานย้าย Supabase) */
 const HIST = {
   "เนื้อออส": [["เจ๊แดง", 360], ["ลุงชิด", 375], ["ตลาดสด", 342], [NS, 340]],
   "เนื้อคอย่าง": [["ลุงชิด", 310], ["เจ๊แดง", 325]],
@@ -149,20 +80,17 @@ const HIST = {
   "ขนมจีน": [["เจ๊หมวย", 45], ["ตลาดสด", 50]],
 };
 
-/* ═══════════ helper ═══════════ */
+/* ═══════════ helper (คำนวณ — เหมือนเดิมทุกจุด ไม่เปลี่ยน) ═══════════ */
 const A = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const s2 = (n) => String(r2(n));
 const has = (v) => v !== "" && v !== null && v !== undefined && v !== "-";
-/* แสดงเงิน: เต็มบาทไม่โชว์ .00 · มีเศษโชว์ 2 ตำแหน่ง */
 const money = (n) => {
   const v = r2(n);
   return v.toLocaleString("th-TH", { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 });
 };
 const dec = (n) => r2(n).toLocaleString("th-TH", { maximumFractionDigits: 2 });
 const pct = (n, d) => (d > 0 ? ((n / d) * 100).toFixed(1) + "%" : "—");
-/* เก็บตามที่พิมพ์ · ยอมให้ติดลบ · จุดเดียว · ทศนิยมไม่เกิน 2 ตำแหน่ง
-   (จำกัด 2 ตำแหน่งเพื่อให้เลขที่เห็นบนจอ = เลขที่ระบบใช้คำนวณ เสมอ) */
 const numStr = (s) => {
   let v = String(s).replace(/[^0-9.\-]/g, "");
   const neg = v.startsWith("-");
@@ -176,11 +104,13 @@ const THMON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.",
 const parts = (d) => { const [y, m, dd] = String(d).split("-").map(Number); return { y: y + 543, m, d: dd }; };
 const thDate = (d) => { const p = parts(d); return `${p.d} ${THMON[p.m - 1]} ${p.y}`; };
 const jeNo = (d) => { const p = parts(d); return `RJ-${String(p.y).slice(2)}${String(p.m).padStart(2, "0")}${String(p.d).padStart(2, "0")}`; };
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const TKEY = { qty: "tq", rate: "tr", amt: "ta" };
 const blankRow = (vendor) => ({ qty: "", rate: "", amt: "", tq: false, tr: false, ta: false, vendor, pay: "" });
+const freshDay = () => ({ rows: {}, rev: { cash: "", transfer: "", grab: "", thai: "" }, cashOpen: "", cashCount: "", closed: false });
 
-/* หัวใจของ v14 — ระบบแก้ได้เฉพาะช่องที่ตัวเองเป็นเจ้าของ */
+/* หัวใจของ v15 — ระบบแก้ได้เฉพาะช่องที่ตัวเองเป็นเจ้าของ (เหมือนเดิม ไม่เปลี่ยน) */
 const recalc = (r) => {
   if (!r.ta) {
     r.amt = has(r.qty) && has(r.rate) ? s2(A(r.qty) * A(r.rate)) : "";
@@ -195,94 +125,340 @@ const isConflict = (r) =>
 
 const THRESHOLD = 0.10;
 
-/* ═══════════════════════════════════════════════════════════ */
-/* ═══════════ ชั้นเก็บข้อมูลในเครื่อง ═══════════
-   เก็บใน localStorage ของเบราว์เซอร์เครื่องนี้
-   ถ้าเปิดในที่ที่เก็บไม่ได้ (เช่น artifact ใน Claude) ระบบยังใช้ได้ปกติ
-   แค่ข้อมูลไม่ค้างข้ามวัน — และจะขึ้นแถบเตือนให้เห็นชัด */
-const KEY = "laab-ls-v1";
-const canStore = (() => {
-  try { const k = "__t"; window.localStorage.setItem(k, "1"); window.localStorage.removeItem(k); return true; }
-  catch (e) { return false; }
-})();
-const loadDB = () => {
-  if (!canStore) return null;
-  try { return JSON.parse(window.localStorage.getItem(KEY)) || null; } catch (e) { return null; }
-};
-const saveDB = (db) => {
-  if (!canStore) return false;
-  try { window.localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch (e) { return false; }
-};
-const freshDay = () => ({ rows: {}, rev: { cash: "", transfer: "", grab: "", thai: "" }, cashOpen: "", cashCount: "", closed: false });
-const seedCatalog = () => CATALOG.map(([name, cat, unit, vendor, yRate, yQty], i) =>
-  ({ id: i + 1, name, cat, unit, vendor, yRate, yQty }));
+/* ═══════════════════════════════════════════════════════════
+   ═══════════ ชั้นเก็บข้อมูล — Supabase ═══════════
+   แทนที่ localStorage เดิมทั้งหมด ต้องต่อเน็ตเวลาใช้งาน
+   ═══════════════════════════════════════════════════════════ */
+const REV_CHANNEL_DB = { cash: "cash", transfer: "transfer", grab: "grab", thai: "thaichuaithai" };
+const REV_CHANNEL_APP = { cash: "cash", transfer: "transfer", grab: "grab", thaichuaithai: "thai" };
 
-/* ═══════════════════════════════════════════════════════════ */
-export default function LaabEntryV15() {
-  /* ── ฐานข้อมูลในเครื่อง ── */
-  const [db, setDb] = useState(() => {
-    const d = loadDB();
-    return {
-      v: 1,
-      catalog: (d && d.catalog) || seedCatalog(),
-      vendors: (d && d.vendors) || VENDORS0,
-      grabPct: (d && d.grabPct) != null ? d.grabPct : "10",
-      days: (d && d.days) || {},
+async function fetchCatalog() {
+  const { data, error } = await supabase.from("items")
+    .select("id,account_code,name,unit,default_vendor_name,is_active")
+    .eq("entity", ENTITY).order("name");
+  if (error) throw error;
+  return data.map((r) => ({
+    id: r.id,
+    name: r.name,
+    cat: CAT_BY_CODE[r.account_code] || "meat",
+    unit: r.unit,
+    vendor: r.default_vendor_name || "—",
+    off: !r.is_active,
+  }));
+}
+
+async function fetchVendors() {
+  const { data, error } = await supabase.from("stores").select("name,default_payment_method").eq("entity", ENTITY);
+  if (error) throw error;
+  const v = {};
+  data.forEach((r) => { v[r.name] = DB2PAY[r.default_payment_method] || "cash"; });
+  return v;
+}
+
+async function fetchGrabPct() {
+  const { data, error } = await supabase.from("settings").select("grab_commission_pct").eq("entity", ENTITY).maybeSingle();
+  if (error) throw error;
+  return data ? String(data.grab_commission_pct) : "10";
+}
+
+async function fetchDay(date) {
+  const [pr, sr, cr] = await Promise.all([
+    supabase.from("daily_purchases")
+      .select("item_id,qty,unit_price,amount,qty_manual,price_manual,amount_manual,vendor_name,payment_method_override")
+      .eq("entity", ENTITY).eq("purchase_date", date),
+    supabase.from("daily_sales").select("channel,amount").eq("entity", ENTITY).eq("sale_date", date),
+    supabase.from("cash_counts").select("opening_cash,counted_cash,is_closed")
+      .eq("entity", ENTITY).eq("count_date", date).maybeSingle(),
+  ]);
+  if (pr.error) throw pr.error;
+  if (sr.error) throw sr.error;
+  if (cr.error) throw cr.error;
+
+  const rows = {};
+  (pr.data || []).forEach((p) => {
+    rows[p.item_id] = {
+      qty: p.qty != null ? String(p.qty) : "",
+      rate: p.unit_price != null ? String(p.unit_price) : "",
+      amt: p.amount != null ? String(p.amount) : "",
+      tq: !!p.qty_manual, tr: !!p.price_manual, ta: !!p.amount_manual,
+      vendor: p.vendor_name || "—",
+      pay: p.payment_method_override ? (DB2PAY[p.payment_method_override] || "") : "",
     };
   });
-  const [storeOk, setStoreOk] = useState(canStore);
-  useEffect(() => { if (canStore && !saveDB(db)) setStoreOk(false); }, [db]);
-
-  const [date, setDate] = useState(() => {
-    const d = loadDB();
-    const ks = d && d.days ? Object.keys(d.days).sort() : [];
-    return ks.length ? ks[ks.length - 1] : new Date().toISOString().slice(0, 10);
+  const rev = { cash: "", transfer: "", grab: "", thai: "" };
+  (sr.data || []).forEach((s) => {
+    const k = REV_CHANNEL_APP[s.channel];
+    if (k) rev[k] = s.amount != null ? String(s.amount) : "";
   });
+  const cash = cr.data;
+  return {
+    rows, rev,
+    cashOpen: cash && cash.opening_cash != null ? String(cash.opening_cash) : "",
+    cashCount: cash && cash.counted_cash != null ? String(cash.counted_cash) : "",
+    closed: !!(cash && cash.is_closed),
+  };
+}
 
-  const catalog = db.catalog;
-  const vendors = db.vendors;
-  const grabPct = db.grabPct;
-  const day = db.days[date] || freshDay();
-  const rev = day.rev;
-  const savedDates = useMemo(() => Object.keys(db.days).sort().reverse(), [db.days]);
-
-  const setDay = (fn) => setDb((p) => {
-    const cur = p.days[date] || freshDay();
-    return { ...p, days: { ...p.days, [date]: fn(cur) } };
+async function fetchPrevOf(date, catalog) {
+  const { data, error } = await supabase.rpc("get_prev_purchases", { p_entity: ENTITY, p_date: date });
+  if (error) throw error;
+  const byItem = {};
+  (data || []).forEach((r) => { byItem[r.item_id] = r; });
+  const map = {};
+  catalog.forEach((it) => {
+    const r = byItem[it.id];
+    map[it.id] = r
+      ? { rate: String(r.unit_price), qty: String(r.qty || ""), vendor: r.vendor_name || it.vendor,
+          pay: r.payment_method_override ? (DB2PAY[r.payment_method_override] || "") : "", when: r.purchase_date }
+      : { rate: "", qty: "", vendor: it.vendor, pay: "", when: null };
   });
-  const setRows = (fn) => setDay((d) => ({ ...d, rows: typeof fn === "function" ? fn(d.rows) : fn }));
-  const setRev = (fn) => setDay((d) => ({ ...d, rev: typeof fn === "function" ? fn(d.rev) : fn }));
-  const setCatalog = (fn) => setDb((p) => ({ ...p, catalog: typeof fn === "function" ? fn(p.catalog) : fn }));
-  const setVendors = (fn) => setDb((p) => ({ ...p, vendors: typeof fn === "function" ? fn(p.vendors) : fn }));
-  const setGrabPct = (v) => setDb((p) => ({ ...p, grabPct: v }));
-  const setCashOpen = (v) => setDay((d) => ({ ...d, cashOpen: v }));
-  const setCashCount = (v) => setDay((d) => ({ ...d, cashCount: v }));
+  return map;
+}
 
-  /* ── "เมื่อวาน" = ครั้งล่าสุดก่อนวันนี้ที่ซื้อของชิ้นนั้นจริง ── */
-  const prevOf = useMemo(() => {
-    const back = Object.keys(db.days).filter((d) => d < date).sort().reverse();
-    const map = {};
-    catalog.forEach((it) => {
-      for (const d of back) {
-        const r = db.days[d].rows && db.days[d].rows[it.id];
-        if (r && has(r.amt) && has(r.rate) && A(r.rate) !== 0) {
-          map[it.id] = { rate: String(r.rate), qty: String(r.qty || ""), vendor: r.vendor, pay: r.pay, when: d };
-          return;
-        }
+async function fetchPrevCash(date) {
+  const { data, error } = await supabase.from("cash_counts").select("counted_cash,count_date")
+    .eq("entity", ENTITY).lt("count_date", date).not("counted_cash", "is", null)
+    .order("count_date", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data ? { v: String(data.counted_cash), when: data.count_date } : null;
+}
+
+async function fetchSavedDatesSummary() {
+  const [pr, sr, cr] = await Promise.all([
+    supabase.from("daily_purchases").select("purchase_date,amount").eq("entity", ENTITY),
+    supabase.from("daily_sales").select("sale_date,amount").eq("entity", ENTITY),
+    supabase.from("cash_counts").select("count_date,is_closed").eq("entity", ENTITY),
+  ]);
+  if (pr.error) throw pr.error;
+  if (sr.error) throw sr.error;
+  if (cr.error) throw cr.error;
+  const map = {};
+  const get = (d) => (map[d] || (map[d] = { d, inn: 0, outn: 0, closed: false }));
+  (pr.data || []).forEach((r) => { get(r.purchase_date).outn += A(r.amount); });
+  (sr.data || []).forEach((r) => { get(r.sale_date).inn += A(r.amount); });
+  (cr.data || []).forEach((r) => { get(r.count_date).closed = !!r.is_closed; });
+  return Object.values(map).sort((a, b) => (a.d < b.d ? 1 : -1));
+}
+
+async function deleteDayDB(date) {
+  await Promise.all([
+    supabase.from("daily_purchases").delete().eq("entity", ENTITY).eq("purchase_date", date),
+    supabase.from("daily_sales").delete().eq("entity", ENTITY).eq("sale_date", date),
+    supabase.from("cash_counts").delete().eq("entity", ENTITY).eq("count_date", date),
+    supabase.from("journal_entries").delete().eq("entity", ENTITY).eq("entry_date", date),
+  ]);
+}
+
+async function saveRowDB(date, itemId, r) {
+  const payload = {
+    entity: ENTITY, purchase_date: date, item_id: itemId,
+    qty: has(r.qty) ? A(r.qty) : null,
+    unit_price: has(r.rate) ? A(r.rate) : null,
+    amount: has(r.amt) ? A(r.amt) : null,
+    qty_manual: !!r.tq, price_manual: !!r.tr, amount_manual: !!r.ta,
+    vendor_name: r.vendor || "—",
+    payment_method_override: r.pay ? PAY2DB[r.pay] : null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from("daily_purchases").upsert(payload, { onConflict: "entity,purchase_date,item_id" });
+  if (error) throw error;
+}
+
+async function saveRevDB(date, channel, amount, grabPct) {
+  const payload = { entity: ENTITY, sale_date: date, channel: REV_CHANNEL_DB[channel], amount: A(amount) };
+  if (channel === "grab") {
+    payload.commission_pct = A(grabPct);
+    payload.commission_amount = r2(A(amount) * A(grabPct) / 100);
+  }
+  const { error } = await supabase.from("daily_sales").upsert(payload, { onConflict: "entity,sale_date,channel" });
+  if (error) throw error;
+}
+
+async function saveCashDB(date, patch) {
+  const payload = { entity: ENTITY, count_date: date, ...patch };
+  const { error } = await supabase.from("cash_counts").upsert(payload, { onConflict: "entity,count_date" });
+  if (error) throw error;
+}
+
+async function upsertItemDB(it) {
+  const account_code = CATS[it.cat].code;
+  const payload = { entity: ENTITY, account_code, name: it.name, unit: it.unit, default_vendor_name: it.vendor, is_active: !it.off };
+  if (typeof it.id === "string" && it.id.includes("-")) {
+    const { error } = await supabase.from("items").update(payload).eq("id", it.id);
+    if (error) throw error;
+    return it.id;
+  }
+  const { data, error } = await supabase.from("items").insert(payload).select("id").single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function upsertVendorDB(name, payKey) {
+  const { error } = await supabase.from("stores")
+    .upsert({ entity: ENTITY, name, default_payment_method: PAY2DB[payKey] || "cash" }, { onConflict: "entity,name" });
+  if (error) throw error;
+}
+
+async function setGrabPctDB(pct) {
+  const { error } = await supabase.from("settings")
+    .upsert({ entity: ENTITY, grab_commission_pct: A(pct) }, { onConflict: "entity" });
+  if (error) throw error;
+}
+
+/* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
+async function saveJournalsDB(date, journals) {
+  await supabase.from("journal_entries").delete().eq("entity", ENTITY).eq("entry_date", date);
+  for (const j of journals) {
+    const sourceType = j.no.endsWith("-A") ? "sales"
+      : /ค้างจ่ายร้านก๋วยเตี๋ยว|ก๋วยเตี๋ยว/.test(j.title) ? "received_from_ns"
+      : /ซื้อเชื่อ/.test(j.title) ? "purchase_credit"
+      : /จ่ายโอน/.test(j.title) ? "purchase_transfer"
+      : "purchase_cash";
+    const { data: entry, error: eErr } = await supabase.from("journal_entries")
+      .insert({ entity: ENTITY, entry_date: date, voucher_no: j.no, description: j.title, source_type: sourceType })
+      .select("id").single();
+    if (eErr) throw eErr;
+    const lines = j.lines.map((l) => ({ entry_id: entry.id, account_code: l.code, debit: l.dr, credit: l.cr }));
+    const { error: lErr } = await supabase.from("journal_lines").insert(lines);
+    if (lErr) throw lErr;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+function LoadingScreen({ text }) {
+  return (
+    <div style={{ fontFamily: "Sarabun,system-ui,sans-serif", color: "#6B7C72", padding: "40px 20px", textAlign: "center", fontSize: 15 }}>
+      {text}
+    </div>
+  );
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) setErr(error.message === "Invalid login credentials" ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" : error.message);
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 340, margin: "60px auto", fontFamily: "Sarabun,system-ui,sans-serif", color: "#1E2A24" }}>
+      <h1 style={{ fontSize: 19, marginBottom: 4 }}>ร้านอีสาน/ลาบ</h1>
+      <p style={{ fontSize: 12.5, color: "#6B7C72", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
+      <form onSubmit={submit}>
+        <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>อีเมล</label>
+        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+          style={{ width: "100%", padding: 9, marginBottom: 12, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
+        <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>รหัสผ่าน</label>
+        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+          style={{ width: "100%", padding: 9, marginBottom: 14, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
+        {err && <p style={{ color: "#A8443A", fontSize: 12.5, marginTop: -6, marginBottom: 12 }}>{err}</p>}
+        <button type="submit" disabled={busy}
+          style={{ width: "100%", padding: 11, border: "none", borderRadius: 4, background: "#1E2A24", color: "#FBFAF6", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>
+          {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
+        </button>
+      </form>
+      <p style={{ fontSize: 11.5, color: "#6B7C72", marginTop: 18, lineHeight: 1.6 }}>
+        ยังไม่มีบัญชี — ให้บอสหนึ่งสร้างให้ผ่าน Supabase Dashboard (Authentication → Users → Add user)
+      </p>
+    </div>
+  );
+}
+
+export default function LaabEntryV15() {
+  const [session, setSession] = useState(undefined); // undefined = กำลังเช็ค · null = ยังไม่ล็อกอิน · object = ล็อกอินแล้ว
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (session === undefined) return <LoadingScreen text="กำลังตรวจสอบการเข้าสู่ระบบ…" />;
+  if (!session) return <LoginScreen />;
+  return <LaabEntryApp userEmail={session.user.email} />;
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+function LaabEntryApp({ userEmail }) {
+  const [bootReady, setBootReady] = useState(false);
+  const [bootError, setBootError] = useState("");
+  const [catalog, setCatalogState] = useState([]);
+  const [vendors, setVendorsState] = useState({});
+  const [grabPct, setGrabPctState] = useState("10");
+
+  const [date, setDate] = useState(todayISO());
+  const [dayLoading, setDayLoading] = useState(true);
+  const [day, setDayState] = useState(freshDay());
+  const [prevOf, setPrevOf] = useState({});
+  const [prevCash, setPrevCash] = useState(null);
+
+  const [remoteChanged, setRemoteChanged] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [pendingSaves, setPendingSaves] = useState(0);
+
+  /* ── โหลดผังของ/ร้าน/ค่าคอม ครั้งแรกหลังล็อกอิน ── */
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, v, g] = await Promise.all([fetchCatalog(), fetchVendors(), fetchGrabPct()]);
+        setCatalogState(c); setVendorsState(v); setGrabPctState(g);
+        setBootReady(true);
+      } catch (e) {
+        setBootError(String((e && e.message) || e));
       }
-      map[it.id] = it.yRate
-        ? { rate: String(it.yRate), qty: String(it.yQty || ""), vendor: it.vendor, pay: "", when: null }
-        : { rate: "", qty: "", vendor: it.vendor, pay: "", when: null };
-    });
-    return map;
-  }, [db.days, catalog, date]);
+    })();
+  }, []);
 
-  /* เงินสดยกมา: ถ้ายังไม่ใส่ ใช้ยอดนับได้ของวันก่อนหน้าอัตโนมัติ */
-  const prevCash = useMemo(() => {
-    const back = Object.keys(db.days).filter((d) => d < date).sort().reverse();
-    for (const d of back) if (has(db.days[d].cashCount)) return { v: db.days[d].cashCount, when: d };
-    return null;
-  }, [db.days, date]);
+  /* ── โหลดข้อมูลวันที่เลือก ── */
+  const loadDay = useCallback(async (d, cat) => {
+    setDayLoading(true);
+    try {
+      const [dd, po, pc] = await Promise.all([fetchDay(d), fetchPrevOf(d, cat), fetchPrevCash(d)]);
+      setDayState(dd); setPrevOf(po); setPrevCash(pc);
+      setRemoteChanged(false);
+    } catch (e) {
+      setSaveError("โหลดข้อมูลวันที่ " + d + " ไม่สำเร็จ: " + String((e && e.message) || e));
+    } finally {
+      setDayLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (bootReady) loadDay(date, catalog); }, [bootReady, date]); // eslint-disable-line
+
+  /* ── ฟังการเปลี่ยนแปลงจากเครื่องอื่นแบบเรียลไทม์ — ไม่เขียนทับของที่กำลังพิมพ์อยู่ แค่ขึ้นแจ้งให้กดโหลดใหม่ ── */
+  useEffect(() => {
+    if (!bootReady) return;
+    const ch = supabase.channel("laab-ls-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "daily_purchases", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "daily_sales", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "cash_counts", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [bootReady]);
+
+  const savedDates = useMemo(() => [], []); // ใช้ showDays panel โหลดเองแยก (ด้านล่าง)
+
+  const track = (p) => { setPendingSaves((n) => n + 1); p.catch((e) => setSaveError(String((e && e.message) || e))).finally(() => setPendingSaves((n) => Math.max(0, n - 1))); };
+
+  const setRows = (fn) => setDayState((d) => ({ ...d, rows: typeof fn === "function" ? fn(d.rows) : fn }));
+  const setRev = (fn) => setDayState((d) => ({ ...d, rev: typeof fn === "function" ? fn(d.rev) : fn }));
+  const rev = day.rev;
+  const setCashOpen = (v) => { setDayState((d) => ({ ...d, cashOpen: v })); track(saveCashDB(date, { opening_cash: has(v) ? A(v) : null })); };
+  const setCashCount = (v) => { setDayState((d) => ({ ...d, cashCount: v })); track(saveCashDB(date, { counted_cash: has(v) ? A(v) : null })); };
+  const setClosed = (v) => { setDayState((d) => ({ ...d, closed: v })); track(saveCashDB(date, { is_closed: v })); };
+
+  const setGrabPct = (v) => { setGrabPctState(v); track(setGrabPctDB(v)); };
+
+  const setCatalog = (fn) => setCatalogState((p) => (typeof fn === "function" ? fn(p) : fn));
+  const setVendors = (fn) => setVendorsState((p) => (typeof fn === "function" ? fn(p) : fn));
+
   const cashOpen = has(day.cashOpen) ? day.cashOpen : (prevCash ? prevCash.v : "");
   const cashOpenAuto = !has(day.cashOpen) && !!prevCash;
   const cashCount = day.cashCount;
@@ -297,6 +473,7 @@ export default function LaabEntryV15() {
   const [copied, setCopied] = useState(false);
   const [resetNote, setResetNote] = useState("");
   const [showDays, setShowDays] = useState(false);
+  const [daysSummary, setDaysSummary] = useState(null);
   const [editCat, setEditCat] = useState(null);
 
   const rowRef = useRef({});
@@ -304,9 +481,8 @@ export default function LaabEntryV15() {
   const fileRef = useRef(null);
 
   const closed = !!day.closed;
-  const setClosed = (v) => setDay((d) => ({ ...d, closed: v }));
 
-  /* แถวที่ยังไม่ถูกแตะ = ราคาเติมจากครั้งก่อน */
+  /* แถวที่ยังไม่ถูกแตะ = ราคาเติมจากครั้งก่อน (เหมือนเดิม แค่ prevOf มาจาก Supabase แทนการสแกนในเครื่อง) */
   const R = (id) => {
     const r = day.rows[id];
     if (r) return r;
@@ -321,42 +497,51 @@ export default function LaabEntryV15() {
   /* ── แก้ค่าในช่อง ── */
   const edit = (id, field, raw) => {
     const v = numStr(raw);
-    const seed = R(id);                       // แถวที่ยังไม่ถูกแตะ = ราคาเติมจากครั้งก่อน
+    const seed = R(id);
+    let saved;
     setRows((p) => {
       const r = { ...(p[id] || seed), [field]: v };
       r[TKEY[field]] = v !== "";
-      return { ...p, [id]: recalc(r) };
+      const rr = recalc(r);
+      saved = rr;
+      return { ...p, [id]: rr };
     });
     dirty();
+    track(saveRowDB(date, id, saved));
   };
 
-  /* ── แก้ข้อขัดแย้ง ── */
   const resolve = (id, keep) => {
     const seed = R(id);
+    let saved;
     setRows((p) => {
       const r = { ...(p[id] || seed) };
-      if (keep === "amt") r.tr = false;   // ยอดรวมถูก → ให้ระบบคำนวณราคาใหม่
-      else r.ta = false;                  // ราคาถูก → ให้ระบบคำนวณยอดรวมใหม่
-      return { ...p, [id]: recalc(r) };
+      if (keep === "amt") r.tr = false; else r.ta = false;
+      const rr = recalc(r);
+      saved = rr;
+      return { ...p, [id]: rr };
     });
     dirty();
+    track(saveRowDB(date, id, saved));
   };
 
   const setVend = (id, v) => {
     const name = v.trim() || "—";
     const seed = R(id);
-    setVendors((p) => (p[name] ? p : { ...p, [name]: "cash" }));
-    setRows((p) => ({ ...p, [id]: { ...(p[id] || seed), vendor: name } }));
+    if (!vendors[name]) { setVendors((p) => ({ ...p, [name]: "cash" })); track(upsertVendorDB(name, "cash")); }
+    let saved;
+    setRows((p) => { saved = { ...(p[id] || seed), vendor: name }; return { ...p, [id]: saved }; });
     dirty();
+    track(saveRowDB(date, id, saved));
   };
   const setPay = (id, v) => {
     const seed = R(id);
-    setRows((p) => ({ ...p, [id]: { ...(p[id] || seed), pay: v } }));
+    let saved;
+    setRows((p) => { saved = { ...(p[id] || seed), pay: v }; return { ...p, [id]: saved }; });
     dirty();
+    track(saveRowDB(date, id, saved));
   };
   const payOf = (r) => r.pay || vendors[r.vendor] || "cash";
 
-  /* ── แสดงตัวเลข: จัดรูปเฉพาะตอนไม่ได้พิมพ์อยู่ ── */
   const show = (id, field) => {
     const v = R(id)[field];
     if (!has(v)) return "";
@@ -368,62 +553,73 @@ export default function LaabEntryV15() {
     onBlur: () => setFocusKey((k) => (k === id + ":" + field ? null : k)),
   });
 
-  /* ── ปุ่มเครื่องมือ ── */
   const resetRates = () => {
-    /* ข้ามแถวที่พิมพ์ทั้งจำนวนและยอดรวมเอง — ราคาถูกล็อกด้วยเลขคณิตไปแล้ว
-       (ยอดรวม ÷ จำนวน) ถ้าฝืนใส่ราคาครั้งก่อนทับ ตัวเลขในแถวจะขัดกันเอง */
-    const locked = catalog.filter((it) => prevOf[it.id].rate && R(it.id).ta && R(it.id).tq);
+    const locked = catalog.filter((it) => prevOf[it.id] && prevOf[it.id].rate && R(it.id).ta && R(it.id).tq);
+    const toSave = [];
     setRows((p) => {
       const o = { ...p };
       catalog.forEach((it) => {
-        const pr = prevOf[it.id].rate;
-        if (!pr) return;                             // ไม่มีราคาครั้งก่อน → ไม่แตะ
+        const pv = prevOf[it.id];
+        const pr = pv && pv.rate;
+        if (!pr) return;
         const cur = o[it.id] || R(it.id);
-        if (cur.ta && cur.tq) return;                // ล็อกด้วยเลขคณิต → ไม่แตะ
-        o[it.id] = recalc({ ...cur, rate: pr, tr: false });
+        if (cur.ta && cur.tq) return;
+        const rr = recalc({ ...cur, rate: pr, tr: false });
+        o[it.id] = rr;
+        toSave.push([it.id, rr]);
       });
       return o;
     });
     dirty();
+    toSave.forEach(([id, r]) => track(saveRowDB(date, id, r)));
     setResetNote(locked.length
       ? `คืนราคาครั้งก่อนแล้ว — ข้าม ${locked.length} รายการที่พิมพ์ทั้งจำนวนและยอดรวมเอง (${locked.map((x) => x.name).join(", ")}) เพราะราคาต้องคิดจากยอดที่พิมพ์`
       : "");
   };
 
   const clearQty = () => {
+    const toSave = [];
     setRows((p) => {
       const o = { ...p };
       catalog.forEach((it) => {
         const cur = o[it.id] || R(it.id);
-        o[it.id] = recalc({ ...cur, qty: "", tq: false, amt: "", ta: false });
+        const rr = recalc({ ...cur, qty: "", tq: false, amt: "", ta: false });
+        o[it.id] = rr;
+        toSave.push([it.id, rr]);
       });
       return o;
     });
     dirty();
+    toSave.forEach(([id, r]) => track(saveRowDB(date, id, r)));
   };
 
   const addItem = () => {
     const name = nn.trim();
     if (!name || !newFor) return;
     const vendor = nv.trim() || "—";
-    setVendors((p) => (p[vendor] ? p : { ...p, [vendor]: "cash" }));
-    const id = Math.max(0, ...catalog.map((c) => c.id)) + 1;
-    setCatalog((p) => [...p, { id, name, cat: newFor, unit: nu.trim() || "ชิ้น", vendor, yRate: 0, yQty: 0 }]);
-    setRows((p) => ({ ...p, [id]: blankRow(vendor) }));
+    if (!vendors[vendor]) { setVendors((p) => ({ ...p, [vendor]: "cash" })); track(upsertVendorDB(vendor, "cash")); }
+    const it = { id: `tmp-${Date.now()}`, name, cat: newFor, unit: nu.trim() || "ชิ้น", vendor, off: false };
+    track((async () => {
+      const realId = await upsertItemDB(it);
+      setCatalog((p) => p.map((x) => (x.id === it.id ? { ...x, id: realId } : x)));
+    })());
+    setCatalog((p) => [...p, it]);
+    setRows((p) => ({ ...p, [it.id]: blankRow(vendor) }));
     setNn(""); setNu(""); setNv(""); dirty();
   };
 
-  /* ── แก้ไขรายการของ (ตั้งค่าครั้งเดียว เก็บในเครื่อง) ── */
-  const patchItem = (id, patch) =>
-    setCatalog((p) => p.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  const patchItem = (id, patch) => {
+    let updated;
+    setCatalog((p) => p.map((it) => { if (it.id !== id) return it; updated = { ...it, ...patch }; return updated; }));
+    if (updated) track(upsertItemDB(updated));
+    if (patch.vendor && !vendors[patch.vendor]) { setVendors((p) => ({ ...p, [patch.vendor]: "cash" })); track(upsertVendorDB(patch.vendor, "cash")); }
+  };
 
-  /* ── รายการที่ใช้งานจริงวันนี้ ── */
   const active = useMemo(
     () => catalog.filter((it) => { const r = R(it.id); return A(r.amt) !== 0 || A(r.qty) !== 0; })
       .map((it) => ({ ...it, ...R(it.id) })),
     [catalog, day.rows, prevOf]);
 
-  /* แถวกรอกค้าง: มีจำนวนแต่ยังไม่มียอดเงิน */
   const pending = useMemo(
     () => catalog.filter((it) => { const r = R(it.id); return A(r.qty) !== 0 && !has(r.amt); }),
     [catalog, day.rows, prevOf]);
@@ -437,6 +633,7 @@ export default function LaabEntryV15() {
 
   const priceFlag = (it) => {
     const pv = prevOf[it.id];
+    if (!pv) return null;
     const y = A(pv.rate), now = A(R(it.id).rate);
     if (!y || !now || A(R(it.id).qty) === 0) return null;
     const d = (now - y) / y;
@@ -459,7 +656,7 @@ export default function LaabEntryV15() {
     return () => clearTimeout(t);
   }, [hi]);
 
-  /* ── ตัวเลขรวม ── */
+  /* ── ตัวเลขรวม (สูตรเดิมทุกตัว ไม่เปลี่ยน) ── */
   const grabGross = A(rev.grab);
   const grabComm = r2(grabGross * A(grabPct) / 100);
   const grabNet = r2(grabGross - grabComm);
@@ -475,10 +672,9 @@ export default function LaabEntryV15() {
   const cashShould = r2(A(cashOpen) + A(rev.cash) - cashPaid);
   const cashDiff = has(cashCount) ? r2(A(cashCount) - cashShould) : null;
 
-  /* ── สมุดรายวัน ── */
+  /* ── สมุดรายวัน (สูตรเดิมทุกจุด) ── */
   const journals = useMemo(() => {
     const no = jeNo(date), out = [];
-
     const revLines = [];
     if (A(rev.cash))     { revLines.push({ code: "1010-LS", dr: r2(A(rev.cash)), cr: 0 }); }
     if (A(rev.transfer)) { revLines.push({ code: "1020-LS", dr: r2(A(rev.transfer)), cr: 0 }); }
@@ -517,7 +713,6 @@ export default function LaabEntryV15() {
   const sumCr = r2(journals.reduce((s, j) => s + j.lines.reduce((a, l) => a + l.cr, 0), 0));
   const balanced = Math.abs(sumDr - sumCr) < 0.005 && sumDr > 0;
 
-  /* ── ข้อความสรุปไว้คัดลอก ── */
   const summary = useMemo(() => {
     const T = (a) => a.join("\t");
     const L = [];
@@ -574,22 +769,35 @@ export default function LaabEntryV15() {
     setTimeout(() => setCopied(false), 2500);
   };
 
-  /* ── เปลี่ยนวันที่: ข้อมูลถูกเก็บอัตโนมัติ เปลี่ยนวันคือโหลดวันนั้นขึ้นมา ── */
+  const closeDay = async () => {
+    setClosed(true);
+    track(saveJournalsDB(date, journals));
+  };
+
   const shiftDay = (n) => {
     const t = new Date(date + "T00:00:00");
     t.setDate(t.getDate() + n);
     setDate(t.toISOString().slice(0, 10));
   };
-  const dayHasData = (d) => {
-    const x = db.days[d]; if (!x) return false;
-    return Object.values(x.rows || {}).some((r) => A(r.amt) !== 0) ||
-      Object.values(x.rev || {}).some((v) => A(v) !== 0);
-  };
-  const deleteDay = (d) => setDb((p) => { const n = { ...p.days }; delete n[d]; return { ...p, days: n }; });
 
-  /* ── สำรอง / กู้ข้อมูล ── */
+  const openDaysPanel = async () => {
+    setShowDays(true);
+    if (!daysSummary) {
+      try { setDaysSummary(await fetchSavedDatesSummary()); }
+      catch (e) { setSaveError(String((e && e.message) || e)); }
+    }
+  };
+
+  const deleteDay = async (d) => {
+    if (!window.confirm(`ลบข้อมูลวันที่ ${thDate(d)} ทั้งหมด? กู้คืนไม่ได้`)) return;
+    await deleteDayDB(d);
+    setDaysSummary((p) => p && p.filter((x) => x.d !== d));
+    if (d === date) loadDay(date, catalog);
+  };
+
+  /* ── สำรอง / กู้ข้อมูล — ยังคงไว้เป็นทางสำรอง (ดาวน์โหลด/นำเข้าไฟล์ .json) ── */
   const backup = () => {
-    const blob = new Blob([JSON.stringify(db, null, 1)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ catalog, vendors, grabPct, date, day }, null, 1)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -597,19 +805,40 @@ export default function LaabEntryV15() {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
+  /* กู้จากไฟล์สำรองรุ่นเก่า (localStorage) — นำเข้าเข้า Supabase ให้อัตโนมัติ */
   const restore = (file) => {
     const fr = new FileReader();
-    fr.onload = () => {
+    fr.onload = async () => {
       try {
         const d = JSON.parse(String(fr.result));
-        if (!d || !d.days) throw new Error("รูปแบบไฟล์ไม่ถูก");
-        setDb({ v: 1, catalog: d.catalog || seedCatalog(), vendors: d.vendors || VENDORS0,
-                grabPct: d.grabPct != null ? d.grabPct : "10", days: d.days });
-        const ks = Object.keys(d.days).sort();
-        if (ks.length) setDate(ks[ks.length - 1]);
-        setResetNote(`กู้ข้อมูลสำเร็จ — ${Object.keys(d.days).length} วัน`);
+        if (!d || !d.days) throw new Error("รูปแบบไฟล์ไม่ถูก (ต้องเป็นไฟล์สำรองจาก v15 เดิม)");
+        setResetNote("กำลังนำเข้าข้อมูล…");
+        const nameToId = {};
+        for (const it of (d.catalog || [])) {
+          const match = catalog.find((c) => c.name === it.name);
+          if (match) { nameToId[it.name] = match.id; continue; }
+          const id = await upsertItemDB({ cat: it.cat, name: it.name, unit: it.unit, vendor: it.vendor, off: !!it.off });
+          nameToId[it.name] = id;
+        }
+        for (const [name, pay] of Object.entries(d.vendors || {})) await upsertVendorDB(name, pay);
+        if (d.grabPct != null) await setGrabPctDB(d.grabPct);
+        for (const [dt, dayObj] of Object.entries(d.days || {})) {
+          for (const [oldId, r] of Object.entries(dayObj.rows || {})) {
+            const oldItem = (d.catalog || []).find((c) => String(c.id) === String(oldId));
+            const newId = oldItem ? nameToId[oldItem.name] : null;
+            if (newId) await saveRowDB(dt, newId, r);
+          }
+          for (const [ch, amt] of Object.entries(dayObj.rev || {})) if (has(amt)) await saveRevDB(dt, ch, amt, d.grabPct || grabPct);
+          await saveCashDB(dt, { opening_cash: has(dayObj.cashOpen) ? A(dayObj.cashOpen) : null, counted_cash: has(dayObj.cashCount) ? A(dayObj.cashCount) : null, is_closed: !!dayObj.closed });
+        }
+        const [c] = await Promise.all([fetchCatalog()]);
+        setCatalogState(c);
+        setVendorsState(await fetchVendors());
+        setGrabPctState(await fetchGrabPct());
+        loadDay(date, c);
+        setResetNote(`นำเข้าสำเร็จ — ${Object.keys(d.days).length} วัน`);
       } catch (e) {
-        setResetNote("ไฟล์นี้อ่านไม่ได้ — ต้องเป็นไฟล์สำรองที่ดาวน์โหลดจากหน้านี้");
+        setResetNote("นำเข้าไม่สำเร็จ: " + String((e && e.message) || e));
       }
     };
     fr.readAsText(file);
@@ -626,7 +855,7 @@ export default function LaabEntryV15() {
       <input className="e-unit" value={it.unit} aria-label={`แก้หน่วย ${it.name}`}
         onChange={(e) => patchItem(it.id, { unit: e.target.value })} />
       <input className="e-vend" list="vlist" value={it.vendor} aria-label={`แก้ร้านประจำ ${it.name}`}
-        onChange={(e) => { const v = e.target.value.trim() || "—"; setVendors((p) => (p[v] ? p : { ...p, [v]: "cash" })); patchItem(it.id, { vendor: v }); }} />
+        onChange={(e) => { const v = e.target.value.trim() || "—"; patchItem(it.id, { vendor: v }); }} />
       <button className="e-off" onClick={() => patchItem(it.id, { off: !it.off })}>
         {it.off ? "เอากลับมา" : "เอาออก"}
       </button>
@@ -649,7 +878,7 @@ export default function LaabEntryV15() {
             {HIST[it.name] && (
               <button className="cmpbtn" onClick={() => setCompare(compare === it.name ? null : it.name)}>เทียบ</button>
             )}
-            {!on && A(prevOf[it.id].qty) > 0 && (
+            {!on && prevOf[it.id] && A(prevOf[it.id].qty) > 0 && (
             <span className="yhint">{prevOf[it.id].when ? thDate(prevOf[it.id].when) : "ครั้งก่อน"} {dec(prevOf[it.id].qty)}</span>
           )}
           </span>
@@ -713,6 +942,13 @@ export default function LaabEntryV15() {
     );
   };
 
+  if (bootError) {
+    return <LoadingScreen text={"เชื่อมต่อฐานข้อมูลไม่สำเร็จ: " + bootError} />;
+  }
+  if (!bootReady) {
+    return <LoadingScreen text="กำลังโหลดผังของและร้านค้า…" />;
+  }
+
   /* ═══════════ หน้าจอ ═══════════ */
   return (
     <div className="wrap">
@@ -726,12 +962,13 @@ export default function LaabEntryV15() {
  border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:16px}
 .hdr h1{font-size:19px;font-weight:700;margin:0}
 .hdr .sub{font-size:12px;color:var(--soft);margin-left:10px;font-weight:400}
-.dright{display:flex;align-items:center;gap:9px}
+.dright{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .dtext{font-size:12.5px;color:var(--soft);font-weight:600}
 .navb{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1;padding:6px 9px;border:1px solid var(--rule);
  background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
 .navb:hover{background:var(--field)}
 .navb.wide{font-size:11.5px;font-weight:600}
+.userchip{font-size:11px;color:var(--soft)}
 .dayrow{display:flex;align-items:center;gap:10px;padding:6px 2px;border-bottom:1px solid #EEF2EC;font-size:12.5px}
 .dayrow.cur{background:var(--field);font-weight:600}
 .dayjump{flex:1;text-align:left;border:none;background:transparent;font-family:'Sarabun',sans-serif;
@@ -982,58 +1219,65 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       <div className="hdr">
         <h1>ร้านอีสาน/ลาบ<span className="sub">บันทึกรายวัน · สาขา LS · v15</span></h1>
         <div className="dright">
+          <span className="userchip">{userEmail}</span>
+          <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
           <button className="navb" onClick={() => shiftDay(-1)} aria-label="วันก่อนหน้า">‹</button>
           <span className="dtext">{thDate(date)}</span>
           <button className="navb" onClick={() => shiftDay(1)} aria-label="วันถัดไป">›</button>
           <input className="dateinput" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button className="navb wide" onClick={() => setShowDays(!showDays)}>
-            วันที่บันทึกไว้ {savedDates.filter(dayHasData).length}
-          </button>
+          <button className="navb wide" onClick={openDaysPanel}>วันที่บันทึกไว้</button>
         </div>
       </div>
 
-      {!storeOk && (
-        <div className="alertbar amber" style={{ marginBottom: 14 }}>
-          ⚠ หน้าจอนี้เก็บข้อมูลลงเครื่องไม่ได้ — ปิดแท็บแล้วข้อมูลหาย ต้องกด "ปิดยอดวันนี้" แล้วคัดลอกเก็บเองทุกวัน
-          <br />(ถ้าอยากให้เก็บได้ ต้องเปิดจากไฟล์ HTML หรือลิงก์เว็บ ไม่ใช่ดูในแอปแชท)
+      {saveError && (
+        <div className="alertbar red" style={{ marginBottom: 14 }} onClick={() => setSaveError("")}>
+          ⚠ บันทึกขึ้นฐานข้อมูลไม่สำเร็จ: {saveError} (กดข้อความนี้เพื่อปิด)
         </div>
+      )}
+      {remoteChanged && (
+        <div className="alertbar info" style={{ marginBottom: 14, cursor: "pointer" }}
+          onClick={() => loadDay(date, catalog)}>
+          🔄 มีคนอื่นแก้ไขข้อมูลวันนี้ — กดเพื่อโหลดข้อมูลล่าสุด
+        </div>
+      )}
+      {pendingSaves > 0 && (
+        <div className="alertbar info" style={{ marginBottom: 14 }}>กำลังบันทึกขึ้นฐานข้อมูล…</div>
       )}
 
       {showDays && (
         <div className="card">
           <p className="eyebrow">
-            <span>วันที่บันทึกไว้ในเครื่องนี้</span>
+            <span>วันที่บันทึกไว้ (ในฐานข้อมูลกลาง)</span>
             <span className="plain">
               <button className="tbtn ghost" onClick={backup}>ดาวน์โหลดสำรองข้อมูล</button>{" "}
-              <button className="tbtn ghost" onClick={() => fileRef.current && fileRef.current.click()}>กู้จากไฟล์สำรอง</button>
+              <button className="tbtn ghost" onClick={() => fileRef.current && fileRef.current.click()}>นำเข้าจากไฟล์สำรองเก่า</button>
               <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }}
                 onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) restore(f); e.target.value = ""; }} />
             </span>
           </p>
-          {savedDates.filter(dayHasData).length === 0 ? (
+          {!daysSummary ? (
+            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+          ) : daysSummary.length === 0 ? (
             <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>ยังไม่มีวันไหนบันทึกไว้</p>
-          ) : savedDates.filter(dayHasData).map((d) => {
-            const x = db.days[d];
-            const inn = Object.values(x.rev || {}).reduce((a, v) => a + A(v), 0);
-            const outn = Object.values(x.rows || {}).reduce((a, r) => a + A(r.amt), 0);
-            return (
-              <div className={`dayrow${d === date ? " cur" : ""}`} key={d}>
-                <button className="dayjump" onClick={() => { setDate(d); setShowDays(false); }}>
-                  {thDate(d)}{x.closed ? " ✓" : ""}
-                </button>
-                <span className="dayv">รับ {money(inn)}</span>
-                <span className="dayv">จ่าย {money(outn)}</span>
-                <button className="daydel" onClick={() => deleteDay(d)} aria-label={`ลบข้อมูล ${thDate(d)}`}>ลบ</button>
-              </div>
-            );
-          })}
+          ) : daysSummary.map((x) => (
+            <div className={`dayrow${x.d === date ? " cur" : ""}`} key={x.d}>
+              <button className="dayjump" onClick={() => { setDate(x.d); setShowDays(false); }}>
+                {thDate(x.d)}{x.closed ? " ✓" : ""}
+              </button>
+              <span className="dayv">รับ {money(x.inn)}</span>
+              <span className="dayv">จ่าย {money(x.outn)}</span>
+              <button className="daydel" onClick={() => deleteDay(x.d)} aria-label={`ลบข้อมูล ${thDate(x.d)}`}>ลบ</button>
+            </div>
+          ))}
           <p className="foot" style={{ marginTop: 10 }}>
-            ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น — ล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่องแล้วหาย
-            <b> ควรกดดาวน์โหลดสำรองข้อมูลเก็บไว้อาทิตย์ละครั้ง</b>
+            ข้อมูลเก็บอยู่ในฐานข้อมูลกลาง (Supabase) — พนักงานทุกคนเห็นตรงกัน ต้องต่อเน็ตตอนใช้งาน
           </p>
         </div>
       )}
 
+      {dayLoading ? (
+        <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลวันที่ {thDate(date)}…</p></div>
+      ) : (
       <div className="cols">
         {/* ══ ซ้าย ══ */}
         <div>
@@ -1047,7 +1291,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                     value={focusKey === "rev:" + k ? rev[k] : (rev[k] === "" ? "" : dec(A(rev[k])))}
                     onFocus={() => setFocusKey("rev:" + k)}
                     onBlur={() => setFocusKey((x) => (x === "rev:" + k ? null : x))}
-                    onChange={(e) => { setRev((p) => ({ ...p, [k]: numStr(e.target.value) })); dirty(); }} />
+                    onChange={(e) => { const v = numStr(e.target.value); setRev((p) => ({ ...p, [k]: v })); dirty(); track(saveRevDB(date, k, v, grabPct)); }} />
                   {k === "grab" && (
                     <div className="grabline">
                       <span>หัก</span>
@@ -1223,14 +1467,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <span className="n">{cashShould < 0 ? "−" : ""}{money(Math.abs(cashShould))}</span></div>
           </div>
 
-          <button className="btn" onClick={() => setClosed(true)}>ปิดยอดวันนี้</button>
+          <button className="btn" onClick={closeDay}>ปิดยอดวันนี้</button>
 
           {closed && (
             <div className="savebox">
               <h4>✓ ปิดยอด {thDate(date)} แล้ว — {active.length} รายการ · {journals.length} ใบสำคัญ</h4>
-              {storeOk
-                ? <p className="ok2">✓ ข้อมูลเก็บในเครื่องนี้แล้ว — คัดลอกด้านล่างไว้ส่งนักบัญชี หรือเก็บใน Excel ก็ได้</p>
-                : <p className="warn2">⚠ เครื่องนี้เก็บข้อมูลไม่ได้ — ต้องคัดลอกไปวางใน Excel ก่อนปิดหน้าจอ ไม่งั้นหาย</p>}
+              <p className="ok2">✓ บันทึกขึ้นฐานข้อมูลกลางแล้ว — คัดลอกด้านล่างไว้ส่งนักบัญชี หรือเก็บใน Excel ก็ได้</p>
               <textarea ref={taRef} readOnly value={summary} onFocus={(e) => e.target.select()} />
               <div className="row2">
                 <button onClick={doCopy}>{copied ? "✓ คัดลอกแล้ว" : "คัดลอกข้อมูล"}</button>
@@ -1276,12 +1518,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <b>ช่องสีเข้ม</b> = ตัวเลขที่พิมพ์เอง ระบบไม่แตะ · <b>ช่องสีจาง</b> = ระบบคำนวณให้<br />
               ใส่ยอดรวมก่อนได้ พอใส่จำนวนทีหลัง ระบบจะหาราคาต่อหน่วยให้เอง ไม่ทับยอดที่พิมพ์<br />
               ของจากร้านก๋วยเตี๋ยวลงตามหมวดจริง (เนื้อ→5010 ถุง→6210) เข้าเจ้าหนี้ 2100-LS เคลียร์สิ้นเดือน<br />
-              ราคา "ครั้งก่อน" ดึงจากวันที่บันทึกไว้จริง ยิ่งใช้ยิ่งแม่น<br />
-              <b style={{ color: "var(--margin)" }}>ชื่อร้าน ราคาตั้งต้น และรายการของ ยังเป็นข้อมูลสมมติ — ต้องแทนด้วยของจริง</b>
+              ราคา "ครั้งก่อน" ดึงจากวันที่บันทึกไว้จริง ยิ่งใช้ยิ่งแม่น
             </p>
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
