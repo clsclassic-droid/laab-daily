@@ -480,6 +480,11 @@ function LaabEntryApp({ userEmail }) {
   const taRef = useRef(null);
   const fileRef = useRef(null);
 
+  /* ค่าล่าสุดของ day.rows แบบอ่านได้ทันที ไม่ต้องรอ React render — กันปัญหาบันทึกขึ้น Supabase ไม่ทัน
+     ตอนพิมพ์เร็วๆ หรือมีการอัปเดตพร้อมกันหลายจุด (เดิมพึ่งพาจังหวะของ setState ซึ่งไม่การันตีว่าจะ sync เสมอ) */
+  const rowsDataRef = useRef(day.rows);
+  useEffect(() => { rowsDataRef.current = day.rows; }, [day.rows]);
+
   const closed = !!day.closed;
 
   /* แถวที่ยังไม่ถูกแตะ = ราคาเติมจากครั้งก่อน (เหมือนเดิม แค่ prevOf มาจาก Supabase แทนการสแกนในเครื่อง) */
@@ -498,45 +503,41 @@ function LaabEntryApp({ userEmail }) {
   const edit = (id, field, raw) => {
     const v = numStr(raw);
     const seed = R(id);
-    let saved;
-    setRows((p) => {
-      const r = { ...(p[id] || seed), [field]: v };
-      r[TKEY[field]] = v !== "";
-      const rr = recalc(r);
-      saved = rr;
-      return { ...p, [id]: rr };
-    });
+    const r = { ...(rowsDataRef.current[id] || seed), [field]: v };
+    r[TKEY[field]] = v !== "";
+    const rr = recalc(r);
+    rowsDataRef.current = { ...rowsDataRef.current, [id]: rr };
+    setRows(() => rowsDataRef.current);
     dirty();
-    track(saveRowDB(date, id, saved));
+    track(saveRowDB(date, id, rr));
   };
 
   const resolve = (id, keep) => {
     const seed = R(id);
-    let saved;
-    setRows((p) => {
-      const r = { ...(p[id] || seed) };
-      if (keep === "amt") r.tr = false; else r.ta = false;
-      const rr = recalc(r);
-      saved = rr;
-      return { ...p, [id]: rr };
-    });
+    const r = { ...(rowsDataRef.current[id] || seed) };
+    if (keep === "amt") r.tr = false; else r.ta = false;
+    const rr = recalc(r);
+    rowsDataRef.current = { ...rowsDataRef.current, [id]: rr };
+    setRows(() => rowsDataRef.current);
     dirty();
-    track(saveRowDB(date, id, saved));
+    track(saveRowDB(date, id, rr));
   };
 
   const setVend = (id, v) => {
     const name = v.trim() || "—";
     const seed = R(id);
     if (!vendors[name]) { setVendors((p) => ({ ...p, [name]: "cash" })); track(upsertVendorDB(name, "cash")); }
-    let saved;
-    setRows((p) => { saved = { ...(p[id] || seed), vendor: name }; return { ...p, [id]: saved }; });
+    const saved = { ...(rowsDataRef.current[id] || seed), vendor: name };
+    rowsDataRef.current = { ...rowsDataRef.current, [id]: saved };
+    setRows(() => rowsDataRef.current);
     dirty();
     track(saveRowDB(date, id, saved));
   };
   const setPay = (id, v) => {
     const seed = R(id);
-    let saved;
-    setRows((p) => { saved = { ...(p[id] || seed), pay: v }; return { ...p, [id]: saved }; });
+    const saved = { ...(rowsDataRef.current[id] || seed), pay: v };
+    rowsDataRef.current = { ...rowsDataRef.current, [id]: saved };
+    setRows(() => rowsDataRef.current);
     dirty();
     track(saveRowDB(date, id, saved));
   };
@@ -556,20 +557,19 @@ function LaabEntryApp({ userEmail }) {
   const resetRates = () => {
     const locked = catalog.filter((it) => prevOf[it.id] && prevOf[it.id].rate && R(it.id).ta && R(it.id).tq);
     const toSave = [];
-    setRows((p) => {
-      const o = { ...p };
-      catalog.forEach((it) => {
-        const pv = prevOf[it.id];
-        const pr = pv && pv.rate;
-        if (!pr) return;
-        const cur = o[it.id] || R(it.id);
-        if (cur.ta && cur.tq) return;
-        const rr = recalc({ ...cur, rate: pr, tr: false });
-        o[it.id] = rr;
-        toSave.push([it.id, rr]);
-      });
-      return o;
+    const o = { ...rowsDataRef.current };
+    catalog.forEach((it) => {
+      const pv = prevOf[it.id];
+      const pr = pv && pv.rate;
+      if (!pr) return;
+      const cur = o[it.id] || R(it.id);
+      if (cur.ta && cur.tq) return;
+      const rr = recalc({ ...cur, rate: pr, tr: false });
+      o[it.id] = rr;
+      toSave.push([it.id, rr]);
     });
+    rowsDataRef.current = o;
+    setRows(() => o);
     dirty();
     toSave.forEach(([id, r]) => track(saveRowDB(date, id, r)));
     setResetNote(locked.length
@@ -579,16 +579,15 @@ function LaabEntryApp({ userEmail }) {
 
   const clearQty = () => {
     const toSave = [];
-    setRows((p) => {
-      const o = { ...p };
-      catalog.forEach((it) => {
-        const cur = o[it.id] || R(it.id);
-        const rr = recalc({ ...cur, qty: "", tq: false, amt: "", ta: false });
-        o[it.id] = rr;
-        toSave.push([it.id, rr]);
-      });
-      return o;
+    const o = { ...rowsDataRef.current };
+    catalog.forEach((it) => {
+      const cur = o[it.id] || R(it.id);
+      const rr = recalc({ ...cur, qty: "", tq: false, amt: "", ta: false });
+      o[it.id] = rr;
+      toSave.push([it.id, rr]);
     });
+    rowsDataRef.current = o;
+    setRows(() => o);
     dirty();
     toSave.forEach(([id, r]) => track(saveRowDB(date, id, r)));
   };
@@ -604,7 +603,8 @@ function LaabEntryApp({ userEmail }) {
       setCatalog((p) => p.map((x) => (x.id === it.id ? { ...x, id: realId } : x)));
     })());
     setCatalog((p) => [...p, it]);
-    setRows((p) => ({ ...p, [it.id]: blankRow(vendor) }));
+    rowsDataRef.current = { ...rowsDataRef.current, [it.id]: blankRow(vendor) };
+    setRows(() => rowsDataRef.current);
     setNn(""); setNu(""); setNv(""); dirty();
   };
 
