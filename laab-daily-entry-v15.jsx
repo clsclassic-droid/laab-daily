@@ -249,6 +249,39 @@ async function deleteDayDB(date) {
   ]);
 }
 
+/* ── เผื่อกดลบผิด: ก่อนลบจริงให้ดึงข้อมูลทั้งวันมาเก็บไว้ก่อน แล้วค่อยลบ ── */
+async function fetchDayRaw(date) {
+  const [pr, sr, cr, jer] = await Promise.all([
+    supabase.from("daily_purchases").select("*").eq("entity", ENTITY).eq("purchase_date", date),
+    supabase.from("daily_sales").select("*").eq("entity", ENTITY).eq("sale_date", date),
+    supabase.from("cash_counts").select("*").eq("entity", ENTITY).eq("count_date", date),
+    supabase.from("journal_entries").select("*, journal_lines(*)").eq("entity", ENTITY).eq("entry_date", date),
+  ]);
+  if (pr.error) throw pr.error;
+  if (sr.error) throw sr.error;
+  if (cr.error) throw cr.error;
+  if (jer.error) throw jer.error;
+  return { purchases: pr.data || [], sales: sr.data || [], cash: cr.data || [], journals: jer.data || [] };
+}
+
+/* กู้คืนข้อมูลที่เพิ่งลบไป (เลิกทำ) — เขียนแถวเดิมกลับเข้าไปด้วย id เดิม
+   ใส่ journal_entries/journal_lines ก่อน กันกรณีตารางอื่นอ้างอิง journal_entry_id อยู่ */
+async function restoreDayDB(snapshot) {
+  const { purchases, sales, cash, journals } = snapshot;
+  for (const je of journals) {
+    const { journal_lines, ...entry } = je;
+    const { error: e1 } = await supabase.from("journal_entries").insert(entry);
+    if (e1) throw e1;
+    if (journal_lines && journal_lines.length) {
+      const { error: e2 } = await supabase.from("journal_lines").insert(journal_lines);
+      if (e2) throw e2;
+    }
+  }
+  if (purchases.length) { const { error } = await supabase.from("daily_purchases").insert(purchases); if (error) throw error; }
+  if (sales.length) { const { error } = await supabase.from("daily_sales").insert(sales); if (error) throw error; }
+  if (cash.length) { const { error } = await supabase.from("cash_counts").insert(cash); if (error) throw error; }
+}
+
 async function saveRowDB(date, itemId, r) {
   const payload = {
     entity: ENTITY, purchase_date: date, item_id: itemId,
@@ -402,6 +435,8 @@ function LaabEntryApp({ userEmail }) {
   const [remoteChanged, setRemoteChanged] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pendingSaves, setPendingSaves] = useState(0);
+  const [undoState, setUndoState] = useState(null); // { date, snapshot } — เผื่อกดลบผิดจากหน้า "วันที่บันทึกไว้"
+  const undoTimerRef = useRef(null);
 
   /* ── โหลดผังของ/ร้าน/ค่าคอม ครั้งแรกหลังล็อกอิน ── */
   useEffect(() => {
@@ -596,16 +631,18 @@ function LaabEntryApp({ userEmail }) {
     const name = nn.trim();
     if (!name || !newFor) return;
     const vendor = nv.trim() || "—";
+    const unit = nu.trim() || "ชิ้น";
+    const cat = newFor;
     if (!vendors[vendor]) { setVendors((p) => ({ ...p, [vendor]: "cash" })); track(upsertVendorDB(vendor, "cash")); }
-    const it = { id: `tmp-${Date.now()}`, name, cat: newFor, unit: nu.trim() || "ชิ้น", vendor, off: false };
-    track((async () => {
-      const realId = await upsertItemDB(it);
-      setCatalog((p) => p.map((x) => (x.id === it.id ? { ...x, id: realId } : x)));
-    })());
-    setCatalog((p) => [...p, it]);
-    rowsDataRef.current = { ...rowsDataRef.current, [it.id]: blankRow(vendor) };
-    setRows(() => rowsDataRef.current);
     setNn(""); setNu(""); setNv(""); dirty();
+    /* รอรหัสจริงจาก Supabase ก่อนค่อยเอาเข้าหน้าจอ — กันไม่ให้ใช้รหัสชั่วคราวไปกรอกจำนวน/ราคาแล้วบันทึกไม่ได้ */
+    track((async () => {
+      const realId = await upsertItemDB({ cat, name, unit, vendor, off: false });
+      const it = { id: realId, name, cat, unit, vendor, off: false };
+      setCatalog((p) => [...p, it]);
+      rowsDataRef.current = { ...rowsDataRef.current, [realId]: blankRow(vendor) };
+      setRows(() => rowsDataRef.current);
+    })());
   };
 
   const patchItem = (id, patch) => {
@@ -789,10 +826,32 @@ function LaabEntryApp({ userEmail }) {
   };
 
   const deleteDay = async (d) => {
-    if (!window.confirm(`ลบข้อมูลวันที่ ${thDate(d)} ทั้งหมด? กู้คืนไม่ได้`)) return;
-    await deleteDayDB(d);
-    setDaysSummary((p) => p && p.filter((x) => x.d !== d));
-    if (d === date) loadDay(date, catalog);
+    if (!window.confirm(`ลบข้อมูลวันที่ ${thDate(d)} ทั้งหมด? กดยืนยันแล้วจะมีปุ่ม "เลิกทำ" ให้กดคืนได้ในไม่กี่วินาทีถัดไป`)) return;
+    try {
+      const snapshot = await fetchDayRaw(d);
+      await deleteDayDB(d);
+      setDaysSummary((p) => p && p.filter((x) => x.d !== d));
+      if (d === date) loadDay(date, catalog);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      setUndoState({ date: d, snapshot });
+      undoTimerRef.current = setTimeout(() => setUndoState(null), 20000);
+    } catch (e) {
+      setSaveError("ลบข้อมูลวันที่ " + d + " ไม่สำเร็จ: " + String((e && e.message) || e));
+    }
+  };
+
+  const undoDelete = async () => {
+    if (!undoState) return;
+    const { date: d, snapshot } = undoState;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoState(null);
+    try {
+      await restoreDayDB(snapshot);
+      setDaysSummary(null);
+      if (d === date) loadDay(date, catalog);
+    } catch (e) {
+      setSaveError("กู้คืนข้อมูลวันที่ " + d + " ไม่สำเร็จ: " + String((e && e.message) || e));
+    }
   };
 
   /* ── สำรอง / กู้ข้อมูล — ยังคงไว้เป็นทางสำรอง (ดาวน์โหลด/นำเข้าไฟล์ .json) ── */
@@ -1243,6 +1302,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       {pendingSaves > 0 && (
         <div className="alertbar info" style={{ marginBottom: 14 }}>กำลังบันทึกขึ้นฐานข้อมูล…</div>
       )}
+      {undoState && (
+        <div className="alertbar info" style={{ marginBottom: 14, cursor: "pointer" }} onClick={undoDelete}>
+          🗑 ลบข้อมูลวันที่ {thDate(undoState.date)} แล้ว — กดข้อความนี้เพื่อเลิกทำ (ใช้ได้ไม่กี่วินาที)
+        </div>
+      )}
 
       {showDays && (
         <div className="card">
@@ -1384,6 +1448,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                                 onChange={(e) => setNv(e.target.value)} />
                               <input className="a-unit" placeholder="กก." value={nu} onChange={(e) => setNu(e.target.value)} />
                               <button className="addbtn" onClick={addItem}>เพิ่ม</button>
+                              <button className="tbtn ghost" onClick={() => { setNewFor(null); setNn(""); setNu(""); setNv(""); }}>
+                                ปิด
+                              </button>
                             </div>
                           ) : (
                             <span className="linkrow">
