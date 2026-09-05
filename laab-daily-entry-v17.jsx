@@ -24,30 +24,36 @@ const NS = "ร้านก๋วยเตี๋ยว";
 const PAY2DB = { cash: "cash", transfer: "transfer", credit: "credit", ns: "intercompany" };
 const DB2PAY = { cash: "cash", transfer: "transfer", credit: "credit", intercompany: "ns" };
 
-/* ── 13 หมวด จัดเป็น 3 กลุ่ม ── */
+/* ── 17 หมวด จัดเป็น 4 กลุ่ม (ปรับ 30 ส.ค. 2569 จากตารางรายจ่ายจริง — ยกเลิกหมวด "จิปาถะ" รวม) ── */
 const CATS = {
-  meat:   { label: "ค่าเนื้อ",           code: "5010-LS", name: "ต้นทุนเนื้อสัตว์",            grp: "food",  box: "fresh" },
-  veg:    { label: "ค่าผัก",             code: "5020-LS", name: "ต้นทุนผัก",                   grp: "food",  box: "fresh" },
-  market: { label: "ของตลาด/ข้าว",       code: "5030-LS", name: "ต้นทุนของตลาด",               grp: "food",  box: "fresh" },
-  bev:    { label: "เครื่องดื่ม/น้ำแข็ง", code: "5040-LS", name: "ต้นทุนน้ำ/น้ำแข็ง",          grp: "bev",   box: "fresh" },
+  meat:   { label: "ค่าเนื้อ",             code: "5010-LS", name: "ต้นทุนเนื้อสัตว์",              grp: "food",  box: "food" },
+  veg:    { label: "ค่าผัก",               code: "5020-LS", name: "ต้นทุนผัก",                     grp: "food",  box: "food" },
+  market: { label: "ค่าเครื่องปรุง/ของแห้ง", code: "5030-LS", name: "ต้นทุนเครื่องปรุง/ของแห้ง",     grp: "food",  box: "food" },
+  rice:   { label: "ค่าข้าว/แป้ง",         code: "5050-LS", name: "ต้นทุนข้าว/แป้ง",               grp: "food",  box: "food" },
 
-  bag:    { label: "ถุง/กล่อง",          code: "6210-LS", name: "ค่าถุงพลาสติก/กล่องใส่อาหาร", grp: "ops",   box: "pack" },
-  cup:    { label: "แก้ว/ชาม",           code: "6220-LS", name: "ค่าแก้ว/ชาม",                 grp: "ops",   box: "pack" },
-  straw:  { label: "หลอด/ช้อน/ตะเกียบ",  code: "6230-LS", name: "ค่าหลอด/ช้อน/ตะเกียบ",       grp: "ops",   box: "pack" },
-  tissue: { label: "ทิชชู",              code: "6240-LS", name: "ค่าทิชชู/กระดาษเช็ดปาก",      grp: "ops",   box: "pack" },
-  clean:  { label: "น้ำยาล้างจาน/ของใช้", code: "6250-LS", name: "ค่าน้ำยาล้างจาน/ทำความสะอาด", grp: "ops",  box: "pack" },
+  bev:    { label: "ค่าเครื่องดื่ม (ไม่มีแอลกอฮอล์)", code: "5040-LS", name: "ต้นทุนเครื่องดื่ม(ไม่มีแอลกอฮอล์)", grp: "bev", box: "bev" },
+  beer:   { label: "ค่าเครื่องดื่มแอลกอฮอล์", code: "5060-LS", name: "ต้นทุนเครื่องดื่มแอลกอฮอล์",    grp: "bev",   box: "bev" },
+  ice:    { label: "ค่าน้ำแข็ง",           code: "5070-LS", name: "ต้นทุนน้ำแข็ง",                  grp: "bev",   box: "bev" },
 
-  wage:   { label: "ค่าแรงคนงาน",        code: "6010-LS", name: "ค่าแรงคนงาน",                 grp: "labor", box: "daily" },
-  meal:   { label: "ค่าข้าวพนักงาน",     code: "6020-LS", name: "ค่าข้าวพนักงาน",              grp: "labor", box: "daily" },
-  fuel:   { label: "ค่าน้ำมัน/ขนส่ง",    code: "6510-LS", name: "ค่าขนส่ง/ค่าน้ำมัน",          grp: "ops",   box: "daily" },
-  gas:    { label: "ค่าแก๊ส",            code: "6140-LS", name: "ค่าแก๊ส",                     grp: "ops",   box: "daily" },
+  bag:    { label: "ถุง/กล่อง",            code: "6210-LS", name: "ค่าถุงพลาสติก/กล่องใส่อาหาร",   grp: "ops",   box: "pack" },
+  cup:    { label: "แก้ว/ชาม",             code: "6220-LS", name: "ค่าแก้ว/ชาม",                   grp: "ops",   box: "pack" },
+  straw:  { label: "หลอด/ช้อน/ตะเกียบ",    code: "6230-LS", name: "ค่าหลอด/ช้อน/ตะเกียบ",         grp: "ops",   box: "pack" },
+  tissue: { label: "ทิชชู",                code: "6240-LS", name: "ค่าทิชชู/กระดาษเช็ดปาก",        grp: "ops",   box: "pack" },
+  clean:  { label: "น้ำยาล้างจาน/ของใช้",  code: "6250-LS", name: "ค่าน้ำยาล้างจาน/ทำความสะอาด",   grp: "ops",  box: "pack" },
+
+  wage:   { label: "ค่าแรงคนงาน",          code: "6010-LS", name: "ค่าแรงคนงาน",                   grp: "labor", box: "daily" },
+  meal:   { label: "ค่าข้าวพนักงาน",       code: "6020-LS", name: "ค่าข้าวพนักงาน",                grp: "labor", box: "daily" },
+  fuel:   { label: "ค่าน้ำมัน/ขนส่ง",      code: "6510-LS", name: "ค่าขนส่ง/ค่าน้ำมัน",            grp: "ops",   box: "daily" },
+  gas:    { label: "ค่าแก๊ส",              code: "6140-LS", name: "ค่าแก๊ส",                       grp: "ops",   box: "daily" },
+  rentEq: { label: "ค่าเช่าอุปกรณ์/เต็น",  code: "6115-LS", name: "ค่าเช่าอุปกรณ์/เต็น",           grp: "ops",   box: "daily" },
 };
 const CAT_BY_CODE = Object.fromEntries(Object.entries(CATS).map(([k, v]) => [v.code, k]));
 
 const BOXES = [
-  { key: "fresh", title: "ของสด — ซื้อทุกวัน",         hint: "เนื้อ ผัก ของตลาด น้ำแข็ง" },
+  { key: "food",  title: "วัตถุดิบอาหาร — ซื้อทุกวัน",  hint: "เนื้อ ผัก เครื่องปรุง ข้าว/แป้ง" },
+  { key: "bev",   title: "เครื่องดื่ม/น้ำแข็ง",          hint: "เครื่องดื่ม แอลกอฮอล์ น้ำแข็ง" },
   { key: "pack",  title: "บรรจุภัณฑ์และของใช้",         hint: "ซื้อเป็นครั้ง ไม่ใช่ทุกวัน" },
-  { key: "daily", title: "ค่าแรงและรายจ่ายรายวัน",      hint: "ค่าแรง ค่าข้าวพนักงาน ค่าน้ำมัน" },
+  { key: "daily", title: "ค่าใช้จ่ายดำเนินงาน",         hint: "ค่าแรง ค่าข้าวพนักงาน ค่าน้ำมัน ค่าแก๊ส ค่าเช่าอุปกรณ์" },
 ];
 const catsIn = (box) => Object.keys(CATS).filter((c) => CATS[c].box === box);
 
