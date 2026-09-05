@@ -49,6 +49,31 @@ const CATS = {
 };
 const CAT_BY_CODE = Object.fromEntries(Object.entries(CATS).map(([k, v]) => [v.code, k]));
 
+/* ── 9 บัญชีค่าใช้จ่ายรายเดือน (นอกเหนือรายวัน) — ปิดยอดเป็นก้อนตอนสิ้นเดือน ── */
+const MONTHLY_ACCS = [
+  { code: "6110-LS", label: "ค่าเช่าร้าน" },
+  { code: "6120-LS", label: "ค่าไฟฟ้า" },
+  { code: "6130-LS", label: "ค่าน้ำประปา" },
+  { code: "6310-LS", label: "ค่าบริการเครื่อง POS" },
+  { code: "6320-LS", label: "ค่าอินเทอร์เน็ต/โทรศัพท์" },
+  { code: "6410-LS", label: "ค่าซ่อมแซมและบำรุงรักษา" },
+  { code: "6030-LS", label: "ค่าสวัสดิการพนักงาน" },
+  { code: "6900-LS", label: "ค่าใช้จ่ายเบ็ดเตล็ด" },
+  { code: "6340-LS", label: "ค่าการตลาด/โฆษณา" },
+];
+
+/* ── สรุปรายเดือนตาม cost_group (แทนที่ชีต "กำไรก่อนภาษี" ใน Excel เดิม) ── */
+const COST_GROUP_LABEL = {
+  food: "ต้นทุนอาหาร/เครื่องดื่ม",
+  labor: "ค่าแรง",
+  occupancy: "ค่าเช่า/สถานที่",
+  marketing: "การตลาด/โฆษณา",
+  transport: "ค่าขนส่ง/น้ำมัน",
+  waste_misc: "ค่าใช้จ่ายทั่วไป (น้ำ/ไฟ/POS/เน็ต/ซ่อมแซม/เบ็ดเตล็ด)",
+  platform_fee: "ค่าคอมมิชชั่นแพลตฟอร์ม",
+};
+const COST_GROUP_ORDER = ["food", "labor", "occupancy", "marketing", "transport", "waste_misc", "platform_fee"];
+
 const BOXES = [
   { key: "food",  title: "วัตถุดิบอาหาร — ซื้อทุกวัน",  hint: "เนื้อ ผัก เครื่องปรุง ข้าว/แป้ง" },
   { key: "bev",   title: "เครื่องดื่ม/น้ำแข็ง",          hint: "เครื่องดื่ม แอลกอฮอล์ น้ำแข็ง" },
@@ -71,7 +96,7 @@ const ACC = {
   "4040-LS": "รายได้ขาย-ไทยช่วยไทย",
   "6330-LS": "ค่าคอมมิชชั่นแพลตฟอร์ม",
 };
-const accName = (c) => ACC[c] || Object.values(CATS).find((x) => x.code === c)?.name || c;
+const accName = (c) => ACC[c] || Object.values(CATS).find((x) => x.code === c)?.name || MONTHLY_ACCS.find((x) => x.code === c)?.label || c;
 
 /* ราคาที่เคยซื้อจากแต่ละร้าน (ปุ่ม "เทียบ") — ยังเป็นข้อมูลสมมติ ผูกกับชื่อของ
    ⚠ ค่อยแทนด้วยของจริงทีหลัง (ตอนนี้ยังไม่ใช่จุดสำคัญของงานย้าย Supabase) */
@@ -121,6 +146,7 @@ const monthEnd = (period) => {
 };
 const thMonth = (period) => { const [y, m] = period.split("-").map(Number); return `${THMON[m - 1]} ${y + 543}`; };
 const prNo = (period) => { const [y, m] = period.split("-").map(Number); return `PR-${String(y + 543).slice(2)}${String(m).padStart(2, "0")}`; };
+const meNo = (period) => { const [y, m] = period.split("-").map(Number); return `ME-${String(y + 543).slice(2)}${String(m).padStart(2, "0")}`; };
 
 const TKEY = { qty: "tq", rate: "tr", amt: "ta" };
 const blankRow = (vendor) => ({ qty: "", rate: "", amt: "", tq: false, tr: false, ta: false, vendor, pay: "" });
@@ -496,6 +522,67 @@ async function closePayrollDB(period, rows, journal) {
   }
 }
 
+/* ── ค่าใช้จ่ายรายเดือน (9 บัญชี นอกเหนือรายวัน) — ปิดยอดเป็นก้อนตอนสิ้นเดือน เหมือนค่าแรง ── */
+async function fetchMonthlyExpenses(period) {
+  const { data, error } = await supabase.from("monthly_expenses")
+    .select("account_code,amount,payment_method,is_closed")
+    .eq("entity", ENTITY).eq("period", period);
+  if (error) throw error;
+  const m = {};
+  (data || []).forEach((r) => { m[r.account_code] = r; });
+  return m;
+}
+
+/* ปิดยอดค่าใช้จ่ายรายเดือน — เขียนใบสำคัญ ME-YYMM ลงวันสุดท้ายของเดือน */
+async function closeMonthlyExpensesDB(period, rows, journal) {
+  const dateEnd = monthEnd(period);
+  await supabase.from("journal_entries").delete()
+    .eq("entity", ENTITY).eq("entry_date", dateEnd).eq("source_type", "monthly_expense");
+  let entryId = null;
+  if (journal && journal.lines.length) {
+    const { data: entry, error: e1 } = await supabase.from("journal_entries")
+      .insert({ entity: ENTITY, entry_date: dateEnd, voucher_no: journal.no, description: journal.title, source_type: "monthly_expense" })
+      .select("id").single();
+    if (e1) throw e1;
+    entryId = entry.id;
+    const { error: e2 } = await supabase.from("journal_lines")
+      .insert(journal.lines.map((l) => ({ entry_id: entry.id, account_code: l.code, debit: l.dr, credit: l.cr })));
+    if (e2) throw e2;
+  }
+  for (const [code, r] of Object.entries(rows)) {
+    const { error } = await supabase.from("monthly_expenses").upsert({
+      entity: ENTITY, period, account_code: code, amount: A(r.amount), payment_method: r.method || "cash",
+      is_closed: true, journal_entry_id: entryId, updated_at: new Date().toISOString(),
+    }, { onConflict: "entity,period,account_code" });
+    if (error) throw error;
+  }
+}
+
+/* ── สรุปรายเดือน — ดึงสดจาก journal_lines ตาม cost_group ของบัญชี (ไม่ต้องกรอกซ้ำที่ไหน) ── */
+async function fetchMonthlySummary(period) {
+  const start = period + "-01";
+  const end = monthEnd(period);
+  const { data, error } = await supabase.from("journal_lines")
+    .select("debit,credit,account_code,accounts(cost_group,account_type),journal_entries!inner(entry_date,entity)")
+    .eq("journal_entries.entity", ENTITY)
+    .gte("journal_entries.entry_date", start)
+    .lte("journal_entries.entry_date", end);
+  if (error) throw error;
+  let revenue = 0;
+  const groups = {};
+  (data || []).forEach((r) => {
+    const acc = r.accounts;
+    if (!acc) return;
+    if (acc.account_type === "revenue") {
+      revenue += A(r.credit) - A(r.debit);
+    } else if (acc.account_type === "expense") {
+      const g = acc.cost_group || "waste_misc";
+      groups[g] = r2((groups[g] || 0) + A(r.debit) - A(r.credit));
+    }
+  });
+  return { revenue: r2(revenue), groups };
+}
+
 /* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
 async function saveJournalsDB(date, journals) {
   /* ลบเฉพาะใบสำคัญของ "รายวัน" — ใบค่าแรงรายเดือน (payroll) ที่ลงวันสุดท้ายของเดือนต้องไม่ถูกลบทิ้ง */
@@ -602,6 +689,12 @@ function LaabEntryApp({ userEmail }) {
   const [showPayroll, setShowPayroll] = useState(false);
   const [payPeriod, setPayPeriod] = useState(monthOf(todayISO()));
   const [payData, setPayData] = useState(null);   // { rows, saved, attMonth }
+  const [showMonthly, setShowMonthly] = useState(false);
+  const [monthlyPeriod, setMonthlyPeriod] = useState(monthOf(todayISO()));
+  const [monthlyData, setMonthlyData] = useState(null); // { rows: { code: {amount, method, closed} } }
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryPeriod, setSummaryPeriod] = useState(monthOf(todayISO()));
+  const [summaryData, setSummaryData] = useState(null); // { revenue, groups }
   const [advFor, setAdvFor] = useState("");
   const [advAmt, setAdvAmt] = useState("");
   const [advPay, setAdvPay] = useState("cash");
@@ -797,6 +890,55 @@ function LaabEntryApp({ userEmail }) {
       setOpenAdv(await fetchOpenAdvances());
       setPayData((d) => d && ({ ...d, rows: d.rows.map((r) => ({ ...r, closed: true })) }));
     })());
+  };
+
+  /* ── ค่าใช้จ่ายรายเดือน (หน้าจอ) ── */
+  const openMonthly = async (period) => {
+    const p = period || monthlyPeriod;
+    setMonthlyPeriod(p); setShowMonthly(true); setMonthlyData(null);
+    try {
+      const saved = await fetchMonthlyExpenses(p);
+      const rows = {};
+      MONTHLY_ACCS.forEach((a) => {
+        const s = saved[a.code];
+        rows[a.code] = { amount: s ? String(s.amount) : "", method: (s && s.payment_method) || "cash", closed: !!(s && s.is_closed) };
+      });
+      setMonthlyData({ rows });
+    } catch (e) { setSaveError(String((e && e.message) || e)); }
+  };
+  const editMonthlyField = (code, field, raw) => {
+    setMonthlyData((d) => d && ({ rows: { ...d.rows, [code]: { ...d.rows[code], [field]: field === "amount" ? numStr(raw) : raw } } }));
+  };
+  const monthlyTotals = useMemo(() => {
+    if (!monthlyData) return null;
+    const rows = MONTHLY_ACCS.map((a) => ({ ...a, ...monthlyData.rows[a.code] }));
+    const cash = r2(rows.filter((r) => r.method === "cash").reduce((s, r) => s + A(r.amount), 0));
+    const bank = r2(rows.filter((r) => r.method !== "cash").reduce((s, r) => s + A(r.amount), 0));
+    return { rows, cash, bank, total: r2(cash + bank) };
+  }, [monthlyData]);
+  const monthlyJournal = useMemo(() => {
+    if (!monthlyTotals || !monthlyTotals.total) return null;
+    const lines = [];
+    monthlyTotals.rows.forEach((r) => { if (A(r.amount) > 0) lines.push({ code: r.code, dr: A(r.amount), cr: 0 }); });
+    if (monthlyTotals.cash) lines.push({ code: "1010-LS", dr: 0, cr: monthlyTotals.cash });
+    if (monthlyTotals.bank) lines.push({ code: "1020-LS", dr: 0, cr: monthlyTotals.bank });
+    return { no: meNo(monthlyPeriod), title: `ค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)}`, lines };
+  }, [monthlyTotals, monthlyPeriod]);
+  const closeMonthly = () => {
+    if (!monthlyData) return;
+    if (!window.confirm(`ปิดยอดค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)} ?`)) return;
+    track((async () => {
+      await closeMonthlyExpensesDB(monthlyPeriod, monthlyData.rows, monthlyJournal);
+      setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: true }])) }));
+    })());
+  };
+
+  /* ── สรุปรายเดือน (หน้าจอ) ── */
+  const openSummary = async (period) => {
+    const p = period || summaryPeriod;
+    setSummaryPeriod(p); setShowSummary(true); setSummaryData(null);
+    try { setSummaryData(await fetchMonthlySummary(p)); }
+    catch (e) { setSaveError(String((e && e.message) || e)); }
   };
 
   const setCatalog = (fn) => setCatalogState((p) => (typeof fn === "function" ? fn(p) : fn));
@@ -1815,6 +1957,114 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         </div>
       )}
 
+      {showMonthly && (
+        <div className="card">
+          <p className="eyebrow">
+            <span>ค่าใช้จ่ายรายเดือน — {thMonth(monthlyPeriod)}</span>
+            <span className="plain"><button className="tbtn ghost" onClick={() => setShowMonthly(false)}>ปิดหน้านี้</button></span>
+          </p>
+          {!monthlyData ? (
+            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+          ) : (
+            <>
+              <div className="prrow prhead">
+                <span>รายการ</span><span>จำนวนเงิน</span><span>วิธีจ่าย</span>
+              </div>
+              {MONTHLY_ACCS.map((a) => {
+                const r = monthlyData.rows[a.code] || { amount: "", method: "cash", closed: false };
+                return (
+                  <div className="prrow" key={a.code}>
+                    <span className="prname">{a.label}</span>
+                    <span>
+                      <input className="prin" inputMode="decimal" placeholder="0" value={r.amount} disabled={r.closed}
+                        onChange={(ev) => editMonthlyField(a.code, "amount", ev.target.value)} />
+                    </span>
+                    <span>
+                      <select className="prsel" value={r.method} disabled={r.closed}
+                        onChange={(ev) => editMonthlyField(a.code, "method", ev.target.value)}>
+                        <option value="cash">สด</option>
+                        <option value="transfer">โอน</option>
+                      </select>
+                    </span>
+                  </div>
+                );
+              })}
+              {monthlyTotals && (
+                <div className="prrow prtot">
+                  <span>รวม</span><span>{money(monthlyTotals.total)}</span><span />
+                </div>
+              )}
+              {monthlyJournal && (
+                <div className="je">
+                  <div className="jetitle">
+                    <span className="jeno">{monthlyJournal.no}</span>
+                    <span>{monthlyJournal.title} · ลงวันที่ {thDate(monthEnd(monthlyPeriod))}</span>
+                  </div>
+                  {monthlyJournal.lines.map((l, i) => (
+                    <div className="jline" key={i}>
+                      <span className="jcode">{l.code}</span>
+                      <span className={`jname${l.cr ? " indent" : ""}`}>{accName(l.code)}</span>
+                      <span className="jamt d">{l.dr ? money(l.dr) : ""}</span>
+                      <span className="jamt c">{l.cr ? money(l.cr) : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 12 }}>
+                {monthlyData && Object.values(monthlyData.rows).length && Object.values(monthlyData.rows).every((r) => r.closed) ? (
+                  <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
+                ) : (
+                  <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal}>
+                    ปิดยอดค่าใช้จ่าย {thMonth(monthlyPeriod)}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {showSummary && (
+        <div className="card">
+          <p className="eyebrow">
+            <span>สรุปรายเดือน — {thMonth(summaryPeriod)}</span>
+            <span className="plain"><button className="tbtn ghost" onClick={() => setShowSummary(false)}>ปิดหน้านี้</button></span>
+          </p>
+          {!summaryData ? (
+            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+          ) : (
+            <>
+              <div className="prrow prhead">
+                <span>รายการ</span><span>จำนวนเงิน</span><span>% ต่อยอดขาย</span>
+              </div>
+              <div className="prrow prtot">
+                <span>ยอดขายรวม</span><span>{money(summaryData.revenue)}</span><span>100.0%</span>
+              </div>
+              {COST_GROUP_ORDER.map((g) => (
+                <div className="prrow" key={g}>
+                  <span className="prname">{COST_GROUP_LABEL[g]}</span>
+                  <span>{money(summaryData.groups[g] || 0)}</span>
+                  <span>{pct(summaryData.groups[g] || 0, summaryData.revenue)}</span>
+                </div>
+              ))}
+              <div className="prrow prtot">
+                <span>Prime Cost (อาหาร+ค่าแรง)</span>
+                <span>{money((summaryData.groups.food || 0) + (summaryData.groups.labor || 0))}</span>
+                <span>{pct((summaryData.groups.food || 0) + (summaryData.groups.labor || 0), summaryData.revenue)}</span>
+              </div>
+              <div className="prrow prtot">
+                <span>กำไรจากการดำเนินงาน</span>
+                <span>{money(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0))}</span>
+                <span>{pct(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0), summaryData.revenue)}</span>
+              </div>
+              <p className="foot" style={{ marginTop: 10 }}>
+                ดึงข้อมูลสดจากสมุดบัญชีแยกประเภทใน Supabase (journal_lines) ตามวันที่จริงในเดือนนี้ — ไม่ต้องกรอกซ้ำที่ไหน
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       {dayLoading ? (
         <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลวันที่ {thDate(date)}…</p></div>
       ) : (
@@ -1982,7 +2232,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 <button className="tbtn ghost" onClick={() => setShowStaff((s) => !s)}>
                   {showStaff ? "ปิดทะเบียน" : "ทะเบียนพนักงาน"}
                 </button>{" "}
-                <button className="tbtn ghost" onClick={() => openPayroll(monthOf(date))}>ปิดยอดค่าแรงเดือนนี้</button>
+                <button className="tbtn ghost" onClick={() => openPayroll(monthOf(date))}>ปิดยอดค่าแรงเดือนนี้</button>{" "}
+                <button className="tbtn ghost" onClick={() => openMonthly(monthOf(date))}>ค่าใช้จ่ายรายเดือน</button>{" "}
+                <button className="tbtn ghost" onClick={() => openSummary(monthOf(date))}>สรุปรายเดือน</button>
               </span>
             </p>
 
