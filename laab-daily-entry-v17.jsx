@@ -508,8 +508,9 @@ async function savePayrollRowDB(period, employeeId, row) {
 /* ปิดยอดค่าแรงเดือน — เขียนใบสำคัญ PR-YYMM ลงวันสุดท้ายของเดือน แล้วตัดเงินเบิกที่หักคืนแล้ว */
 async function closePayrollDB(period, rows, journal) {
   const dateEnd = monthEnd(period);
-  await supabase.from("journal_entries").delete()
+  const { error: eDel } = await supabase.from("journal_entries").delete()
     .eq("entity", ENTITY).eq("entry_date", dateEnd).eq("source_type", "payroll");
+  if (eDel) throw eDel;
   if (journal && journal.lines.length) {
     const { data: entry, error: e1 } = await supabase.from("journal_entries")
       .insert({ entity: ENTITY, entry_date: dateEnd, voucher_no: journal.no, description: journal.title, source_type: "payroll" })
@@ -542,8 +543,9 @@ async function fetchMonthlyExpenses(period) {
 /* ปิดยอดค่าใช้จ่ายรายเดือน — เขียนใบสำคัญ ME-YYMM ลงวันสุดท้ายของเดือน */
 async function closeMonthlyExpensesDB(period, rows, journal) {
   const dateEnd = monthEnd(period);
-  await supabase.from("journal_entries").delete()
+  const { error: eDel } = await supabase.from("journal_entries").delete()
     .eq("entity", ENTITY).eq("entry_date", dateEnd).eq("source_type", "monthly_expense");
+  if (eDel) throw eDel;
   let entryId = null;
   if (journal && journal.lines.length) {
     const { data: entry, error: e1 } = await supabase.from("journal_entries")
@@ -892,16 +894,22 @@ function LaabEntryApp({ userEmail }) {
     return { no: prNo(payPeriod), title: `ค่าแรงพนักงานรายเดือน ${thMonth(payPeriod)}`, lines };
   }, [payTotals, payPeriod]);
 
+  const [payrollClosing, setPayrollClosing] = useState(false);
   const closePayroll = () => {
-    if (!payData) return;
+    if (!payData || payrollClosing) return;
     if (!window.confirm(`ปิดยอดค่าแรงเดือน ${thMonth(payPeriod)} ? เงินเบิกที่หักคืนจะถูกตัดออกจากยอดค้าง`)) return;
     const rows = payData.rows
       .filter((r) => empById[r.id] && empById[r.id].pay_type === "monthly")
       .map((r) => ({ ...r, advIds: advIdsFor(r.id, r.ded) }));
+    setPayrollClosing(true);
     track((async () => {
-      await closePayrollDB(payPeriod, rows, payJournal);
-      setOpenAdv(await fetchOpenAdvances());
-      setPayData((d) => d && ({ ...d, rows: d.rows.map((r) => ({ ...r, closed: true })) }));
+      try {
+        await closePayrollDB(payPeriod, rows, payJournal);
+        setOpenAdv(await fetchOpenAdvances());
+        setPayData((d) => d && ({ ...d, rows: d.rows.map((r) => ({ ...r, closed: true })) }));
+      } finally {
+        setPayrollClosing(false);
+      }
     })());
   };
 
@@ -937,12 +945,18 @@ function LaabEntryApp({ userEmail }) {
     if (monthlyTotals.bank) lines.push({ code: "1020-LS", dr: 0, cr: monthlyTotals.bank });
     return { no: meNo(monthlyPeriod), title: `ค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)}`, lines };
   }, [monthlyTotals, monthlyPeriod]);
+  const [monthlyClosing, setMonthlyClosing] = useState(false);
   const closeMonthly = () => {
-    if (!monthlyData) return;
+    if (!monthlyData || monthlyClosing) return;
     if (!window.confirm(`ปิดยอดค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)} ?`)) return;
+    setMonthlyClosing(true);
     track((async () => {
-      await closeMonthlyExpensesDB(monthlyPeriod, monthlyData.rows, monthlyJournal);
-      setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: true }])) }));
+      try {
+        await closeMonthlyExpensesDB(monthlyPeriod, monthlyData.rows, monthlyJournal);
+        setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: true }])) }));
+      } finally {
+        setMonthlyClosing(false);
+      }
     })());
   };
   const reopenMonthly = () => {
@@ -1971,8 +1985,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 {payData.rows.every((r) => r.closed) ? (
                   <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
                 ) : (
-                  <button className="btn" onClick={closePayroll} disabled={!payJournal}>
-                    ปิดยอดค่าแรง {thMonth(payPeriod)}
+                  <button className="btn" onClick={closePayroll} disabled={!payJournal || payrollClosing}>
+                    {payrollClosing ? "กำลังบันทึก..." : `ปิดยอดค่าแรง ${thMonth(payPeriod)}`}
                   </button>
                 )}
               </div>
@@ -2041,8 +2055,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                     <button className="tbtn ghost" onClick={reopenMonthly}>เปิดแก้ไข</button>
                   </span>
                 ) : (
-                  <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal}>
-                    ปิดยอดค่าใช้จ่าย {thMonth(monthlyPeriod)}
+                  <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal || monthlyClosing}>
+                    {monthlyClosing ? "กำลังบันทึก..." : `ปิดยอดค่าใช้จ่าย ${thMonth(monthlyPeriod)}`}
                   </button>
                 )}
               </div>
