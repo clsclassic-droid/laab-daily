@@ -1308,7 +1308,10 @@ function LaabEntryApp({ userEmail }) {
   const shiftDay = (n) => {
     const t = new Date(date + "T00:00:00");
     t.setDate(t.getDate() + n);
-    setDate(t.toISOString().slice(0, 10));
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, "0");
+    const d = String(t.getDate()).padStart(2, "0");
+    setDate(`${y}-${m}-${d}`);
   };
 
   const openDaysPanel = async () => {
