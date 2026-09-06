@@ -46,6 +46,7 @@ const CATS = {
   fuel:   { label: "ค่าน้ำมัน/ขนส่ง",      code: "6510-LS", name: "ค่าขนส่ง/ค่าน้ำมัน",            grp: "ops",   box: "daily" },
   gas:    { label: "ค่าแก๊ส",              code: "6140-LS", name: "ค่าแก๊ส",                       grp: "ops",   box: "daily" },
   rentEq: { label: "ค่าเช่าอุปกรณ์/เต็น",  code: "6115-LS", name: "ค่าเช่าอุปกรณ์/เต็น",           grp: "ops",   box: "daily" },
+  misc:   { label: "ค่าใช้จ่ายเบ็ดเตล็ด",  code: "6900-LS", name: "ค่าใช้จ่ายเบ็ดเตล็ด",           grp: "ops",   box: "daily" },
 };
 const CAT_BY_CODE = Object.fromEntries(Object.entries(CATS).map(([k, v]) => [v.code, k]));
 
@@ -58,7 +59,6 @@ const MONTHLY_ACCS = [
   { code: "6320-LS", label: "ค่าอินเทอร์เน็ต/โทรศัพท์" },
   { code: "6410-LS", label: "ค่าซ่อมแซมและบำรุงรักษา" },
   { code: "6030-LS", label: "ค่าสวัสดิการพนักงาน" },
-  { code: "6900-LS", label: "ค่าใช้จ่ายเบ็ดเตล็ด" },
   { code: "6340-LS", label: "ค่าการตลาด/โฆษณา" },
 ];
 
@@ -78,7 +78,7 @@ const BOXES = [
   { key: "food",  title: "วัตถุดิบอาหาร — ซื้อทุกวัน",  hint: "เนื้อ ผัก เครื่องปรุง ข้าว/แป้ง" },
   { key: "bev",   title: "เครื่องดื่ม/น้ำแข็ง",          hint: "เครื่องดื่ม แอลกอฮอล์ น้ำแข็ง" },
   { key: "pack",  title: "บรรจุภัณฑ์และของใช้",         hint: "ซื้อเป็นครั้ง ไม่ใช่ทุกวัน" },
-  { key: "daily", title: "ค่าใช้จ่ายดำเนินงาน",         hint: "ค่าแรง ค่าข้าวพนักงาน ค่าน้ำมัน ค่าแก๊ส ค่าเช่าอุปกรณ์" },
+  { key: "daily", title: "ค่าใช้จ่ายดำเนินงาน",         hint: "ค่าแรง ค่าข้าวพนักงาน ค่าน้ำมัน ค่าแก๊ส ค่าเช่าอุปกรณ์ เบ็ดเตล็ด" },
 ];
 const catsIn = (box) => Object.keys(CATS).filter((c) => CATS[c].box === box);
 
