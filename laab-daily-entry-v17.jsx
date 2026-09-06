@@ -543,6 +543,11 @@ async function fetchMonthlyExpenses(period) {
 /* ปิดยอดค่าใช้จ่ายรายเดือน — เขียนใบสำคัญ ME-YYMM ลงวันสุดท้ายของเดือน */
 async function closeMonthlyExpensesDB(period, rows, journal) {
   const dateEnd = monthEnd(period);
+  /* เคลียร์ journal_entry_id เดิมใน monthly_expenses ก่อน ป้องกันลบใบสำคัญเก่าไม่ได้เพราะติด foreign key */
+  const { error: eClear } = await supabase.from("monthly_expenses")
+    .update({ journal_entry_id: null })
+    .eq("entity", ENTITY).eq("period", period);
+  if (eClear) throw eClear;
   const { error: eDel } = await supabase.from("journal_entries").delete()
     .eq("entity", ENTITY).eq("entry_date", dateEnd).eq("source_type", "monthly_expense");
   if (eDel) throw eDel;
