@@ -153,6 +153,11 @@ const monthEnd = (period) => {
 const thMonth = (period) => { const [y, m] = period.split("-").map(Number); return `${THMON[m - 1]} ${y + 543}`; };
 const prNo = (period) => { const [y, m] = period.split("-").map(Number); return `PR-${String(y + 543).slice(2)}${String(m).padStart(2, "0")}`; };
 const meNo = (period) => { const [y, m] = period.split("-").map(Number); return `ME-${String(y + 543).slice(2)}${String(m).padStart(2, "0")}`; };
+const shiftMonth = (period, n) => {
+  const [y, m] = period.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 
 const TKEY = { qty: "tq", rate: "tr", amt: "ta" };
 const blankRow = (vendor) => ({ qty: "", rate: "", amt: "", tq: false, tr: false, ta: false, vendor, pay: "" });
@@ -2093,7 +2098,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
             {showPayroll && (
               <div className="card">
                 <p className="eyebrow">
-                  <span>ปิดยอดค่าแรง — {thMonth(payPeriod)}</span>
+                  <span>
+                    <button className="tbtn ghost" onClick={() => openPayroll(shiftMonth(payPeriod, -1))}>◀</button>{" "}
+                    ปิดยอดค่าแรง — {thMonth(payPeriod)}{" "}
+                    <button className="tbtn ghost" onClick={() => openPayroll(shiftMonth(payPeriod, 1))}>▶</button>
+                  </span>
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowPayroll(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!payData ? (
@@ -2176,7 +2185,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
             {showMonthly && (
               <div className="card">
                 <p className="eyebrow">
-                  <span>ค่าใช้จ่ายรายเดือน — {thMonth(monthlyPeriod)}</span>
+                  <span>
+                    <button className="tbtn ghost" onClick={() => openMonthly(shiftMonth(monthlyPeriod, -1))}>◀</button>{" "}
+                    ค่าใช้จ่ายรายเดือน — {thMonth(monthlyPeriod)}{" "}
+                    <button className="tbtn ghost" onClick={() => openMonthly(shiftMonth(monthlyPeriod, 1))}>▶</button>
+                  </span>
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowMonthly(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!monthlyData ? (
@@ -2246,7 +2259,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
             {showSummary && (
               <div className="card">
                 <p className="eyebrow">
-                  <span>สรุปรายเดือน — {thMonth(summaryPeriod)}</span>
+                  <span>
+                    <button className="tbtn ghost" onClick={() => openSummary(shiftMonth(summaryPeriod, -1))}>◀</button>{" "}
+                    สรุปรายเดือน — {thMonth(summaryPeriod)}{" "}
+                    <button className="tbtn ghost" onClick={() => openSummary(shiftMonth(summaryPeriod, 1))}>▶</button>
+                  </span>
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowSummary(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!summaryData ? (
