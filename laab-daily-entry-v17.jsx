@@ -558,6 +558,13 @@ async function closeMonthlyExpensesDB(period, rows, journal) {
   }
 }
 
+/* เปิดแก้ไขค่าใช้จ่ายรายเดือนที่ปิดยอดไปแล้ว — ปลดล็อคให้แก้ตัวเลขใหม่ได้ (กด "ปิดยอด" ซ้ำหลังแก้เสร็จ) */
+async function reopenMonthlyExpensesDB(period) {
+  const { error } = await supabase.from("monthly_expenses").update({ is_closed: false })
+    .eq("entity", ENTITY).eq("period", period);
+  if (error) throw error;
+}
+
 /* ── สรุปรายเดือน — ดึงสดจาก journal_lines ตาม cost_group ของบัญชี (ไม่ต้องกรอกซ้ำที่ไหน) ── */
 async function fetchMonthlySummary(period) {
   const start = period + "-01";
@@ -930,6 +937,14 @@ function LaabEntryApp({ userEmail }) {
     track((async () => {
       await closeMonthlyExpensesDB(monthlyPeriod, monthlyData.rows, monthlyJournal);
       setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: true }])) }));
+    })());
+  };
+  const reopenMonthly = () => {
+    if (!monthlyData) return;
+    if (!window.confirm(`เปิดแก้ไขค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)} อีกครั้ง? (ต้องกด "ปิดยอด" ใหม่หลังแก้ไขเสร็จ)`)) return;
+    track((async () => {
+      await reopenMonthlyExpensesDB(monthlyPeriod);
+      setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: false }])) }));
     })());
   };
 
@@ -2012,7 +2027,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               )}
               <div style={{ marginTop: 12 }}>
                 {monthlyData && Object.values(monthlyData.rows).length && Object.values(monthlyData.rows).every((r) => r.closed) ? (
-                  <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                    <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
+                    <button className="tbtn ghost" onClick={reopenMonthly}>เปิดแก้ไข</button>
+                  </span>
                 ) : (
                   <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal}>
                     ปิดยอดค่าใช้จ่าย {thMonth(monthlyPeriod)}
