@@ -136,7 +136,13 @@ const THMON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.",
 const parts = (d) => { const [y, m, dd] = String(d).split("-").map(Number); return { y: y + 543, m, d: dd }; };
 const thDate = (d) => { const p = parts(d); return `${p.d} ${THMON[p.m - 1]} ${p.y}`; };
 const jeNo = (d) => { const p = parts(d); return `RJ-${String(p.y).slice(2)}${String(p.m).padStart(2, "0")}${String(p.d).padStart(2, "0")}`; };
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const t = new Date();
+  const y = t.getFullYear();
+  const m = String(t.getMonth() + 1).padStart(2, "0");
+  const d = String(t.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
 
 /* ── เดือน (period = "YYYY-MM") สำหรับปิดยอดค่าแรงรายเดือน ── */
 const monthOf = (d) => String(d).slice(0, 7);
