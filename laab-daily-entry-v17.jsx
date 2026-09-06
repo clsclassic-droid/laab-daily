@@ -73,6 +73,7 @@ const COST_GROUP_LABEL = {
   platform_fee: "ค่าคอมมิชชั่นแพลตฟอร์ม",
 };
 const COST_GROUP_ORDER = ["food", "labor", "occupancy", "marketing", "transport", "waste_misc", "platform_fee"];
+const OPEX_GROUPS = COST_GROUP_ORDER.filter((g) => g !== "food" && g !== "labor");
 
 const BOXES = [
   { key: "food",  title: "วัตถุดิบอาหาร — ซื้อทุกวัน",  hint: "เนื้อ ผัก เครื่องปรุง ข้าว/แป้ง" },
@@ -2276,7 +2277,27 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                     <div className="prrow prtot">
                       <span>ยอดขายรวม</span><span>{money(summaryData.revenue)}</span><span>100.0%</span>
                     </div>
-                    {COST_GROUP_ORDER.map((g) => (
+                    <div className="prrow">
+                      <span className="prname">{COST_GROUP_LABEL.food}</span>
+                      <span>{money(summaryData.groups.food || 0)}</span>
+                      <span>{pct(summaryData.groups.food || 0, summaryData.revenue)}</span>
+                    </div>
+                    <div className="prrow prtot">
+                      <span>กำไรขั้นต้น (Gross Profit)</span>
+                      <span>{money(summaryData.revenue - (summaryData.groups.food || 0))}</span>
+                      <span>{pct(summaryData.revenue - (summaryData.groups.food || 0), summaryData.revenue)}</span>
+                    </div>
+                    <div className="prrow">
+                      <span className="prname">{COST_GROUP_LABEL.labor}</span>
+                      <span>{money(summaryData.groups.labor || 0)}</span>
+                      <span>{pct(summaryData.groups.labor || 0, summaryData.revenue)}</span>
+                    </div>
+                    <div className="prrow prtot">
+                      <span>Prime Cost (อาหาร+ค่าแรง)</span>
+                      <span>{money((summaryData.groups.food || 0) + (summaryData.groups.labor || 0))}</span>
+                      <span>{pct((summaryData.groups.food || 0) + (summaryData.groups.labor || 0), summaryData.revenue)}</span>
+                    </div>
+                    {OPEX_GROUPS.map((g) => (
                       <div className="prrow" key={g}>
                         <span className="prname">{COST_GROUP_LABEL[g]}</span>
                         <span>{money(summaryData.groups[g] || 0)}</span>
@@ -2284,9 +2305,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                       </div>
                     ))}
                     <div className="prrow prtot">
-                      <span>Prime Cost (อาหาร+ค่าแรง)</span>
-                      <span>{money((summaryData.groups.food || 0) + (summaryData.groups.labor || 0))}</span>
-                      <span>{pct((summaryData.groups.food || 0) + (summaryData.groups.labor || 0), summaryData.revenue)}</span>
+                      <span>รวมค่าใช้จ่ายดำเนินงาน</span>
+                      <span>{money(OPEX_GROUPS.reduce((s, g) => s + (summaryData.groups[g] || 0), 0))}</span>
+                      <span>{pct(OPEX_GROUPS.reduce((s, g) => s + (summaryData.groups[g] || 0), 0), summaryData.revenue)}</span>
                     </div>
                     <div className="prrow prtot">
                       <span>กำไรจากการดำเนินงาน</span>
