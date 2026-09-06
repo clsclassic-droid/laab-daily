@@ -1917,200 +1917,6 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         </div>
       )}
 
-      {showPayroll && (
-        <div className="card">
-          <p className="eyebrow">
-            <span>ปิดยอดค่าแรง — {thMonth(payPeriod)}</span>
-            <span className="plain"><button className="tbtn ghost" onClick={() => setShowPayroll(false)}>ปิดหน้านี้</button></span>
-          </p>
-          {!payData ? (
-            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
-          ) : (
-            <>
-              <div className="prrow prhead">
-                <span>พนักงาน</span><span>ประเภท</span><span>ค่าแรงเดือนนี้</span><span>หักเงินเบิก</span><span>จ่ายจริง</span><span>วิธีจ่าย</span>
-              </div>
-              {payData.rows.map((r) => {
-                const e = empById[r.id] || {};
-                const isM = e.pay_type === "monthly";
-                return (
-                  <div className={`prrow${isM ? "" : " dim"}`} key={r.id}>
-                    <span className="prname">{e.name}</span>
-                    <span className="prtype">{isM ? "รายเดือน" : "รายวัน · จ่ายไปแล้ว"}</span>
-                    <span>
-                      <input className="prin" inputMode="decimal" value={r.wage} disabled={!isM || r.closed}
-                        onChange={(ev) => editPay(r.id, "wage", ev.target.value)} />
-                    </span>
-                    <span>
-                      <input className="prin" inputMode="decimal" value={isM ? r.ded : ""} disabled={!isM || r.closed}
-                        onChange={(ev) => editPay(r.id, "ded", ev.target.value)} />
-                    </span>
-                    <span className="prnet">{isM ? money(A(r.wage) - A(r.ded)) : "—"}</span>
-                    <span>
-                      <select className="prsel" value={r.method} disabled={!isM || r.closed}
-                        onChange={(ev) => setPayData((d) => d && ({ ...d, rows: d.rows.map((x) => (x.id === r.id ? { ...x, method: ev.target.value } : x)) }))}>
-                        <option value="cash">สด</option>
-                        <option value="transfer">โอน</option>
-                      </select>
-                    </span>
-                  </div>
-                );
-              })}
-              {payTotals && (
-                <div className="prrow prtot">
-                  <span>รวม</span><span />
-                  <span>{money(payTotals.wage)}</span>
-                  <span>{money(payTotals.ded)}</span>
-                  <span>{money(payTotals.net)}</span>
-                  <span />
-                </div>
-              )}
-              <p className="enote">
-                คนรายวันจ่ายสดไปแล้วทุกวัน (ยอดที่โชว์คือรวมทั้งเดือน ไม่ลงบัญชีซ้ำ) — ใบสำคัญเดือนนี้ลงเฉพาะค่าแรงคนรายเดือน
-                <br />ยอด "หักเงินเบิก" ตั้งให้เท่ายอดค้างอัตโนมัติ แก้ลงได้ · ระบบตัดเงินเบิกใบเก่าก่อน เฉพาะใบที่ยอดหักครอบคลุมเต็มใบ
-                <br />หักเงินเบิกได้เฉพาะคนรายเดือน — คนรายวันรับเงินครบทุกวันแล้ว ไม่มีค่าแรงค้างให้หัก ถ้าคนรายวันค้างเบิกต้องเก็บเงินคืนเอง แล้วค่อยลบรายการเบิกวันนั้นออก
-              </p>
-              {payJournal && (
-                <div className="je">
-                  <div className="jetitle">
-                    <span className="jeno">{payJournal.no}</span>
-                    <span>{payJournal.title} · ลงวันที่ {thDate(monthEnd(payPeriod))}</span>
-                  </div>
-                  {payJournal.lines.map((l, i) => (
-                    <div className="jline" key={i}>
-                      <span className="jcode">{l.code}</span>
-                      <span className={`jname${l.cr ? " indent" : ""}`}>{accName(l.code)}</span>
-                      <span className="jamt d">{l.dr ? money(l.dr) : ""}</span>
-                      <span className="jamt c">{l.cr ? money(l.cr) : ""}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ marginTop: 12 }}>
-                {payData.rows.every((r) => r.closed) ? (
-                  <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
-                ) : (
-                  <button className="btn" onClick={closePayroll} disabled={!payJournal || payrollClosing}>
-                    {payrollClosing ? "กำลังบันทึก..." : `ปิดยอดค่าแรง ${thMonth(payPeriod)}`}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {showMonthly && (
-        <div className="card">
-          <p className="eyebrow">
-            <span>ค่าใช้จ่ายรายเดือน — {thMonth(monthlyPeriod)}</span>
-            <span className="plain"><button className="tbtn ghost" onClick={() => setShowMonthly(false)}>ปิดหน้านี้</button></span>
-          </p>
-          {!monthlyData ? (
-            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
-          ) : (
-            <>
-              <div className="prrow prhead">
-                <span>รายการ</span><span>จำนวนเงิน</span><span>วิธีจ่าย</span>
-              </div>
-              {MONTHLY_ACCS.map((a) => {
-                const r = monthlyData.rows[a.code] || { amount: "", method: "cash", closed: false };
-                return (
-                  <div className="prrow" key={a.code}>
-                    <span className="prname">{a.label}</span>
-                    <span>
-                      <input className="prin" inputMode="decimal" placeholder="0" value={r.amount} disabled={r.closed}
-                        onChange={(ev) => editMonthlyField(a.code, "amount", ev.target.value)} />
-                    </span>
-                    <span>
-                      <select className="prsel" value={r.method} disabled={r.closed}
-                        onChange={(ev) => editMonthlyField(a.code, "method", ev.target.value)}>
-                        <option value="cash">สด</option>
-                        <option value="transfer">โอน</option>
-                      </select>
-                    </span>
-                  </div>
-                );
-              })}
-              {monthlyTotals && (
-                <div className="prrow prtot">
-                  <span>รวม</span><span>{money(monthlyTotals.total)}</span><span />
-                </div>
-              )}
-              {monthlyJournal && (
-                <div className="je">
-                  <div className="jetitle">
-                    <span className="jeno">{monthlyJournal.no}</span>
-                    <span>{monthlyJournal.title} · ลงวันที่ {thDate(monthEnd(monthlyPeriod))}</span>
-                  </div>
-                  {monthlyJournal.lines.map((l, i) => (
-                    <div className="jline" key={i}>
-                      <span className="jcode">{l.code}</span>
-                      <span className={`jname${l.cr ? " indent" : ""}`}>{accName(l.code)}</span>
-                      <span className="jamt d">{l.dr ? money(l.dr) : ""}</span>
-                      <span className="jamt c">{l.cr ? money(l.cr) : ""}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ marginTop: 12 }}>
-                {monthlyData && Object.values(monthlyData.rows).length && Object.values(monthlyData.rows).every((r) => r.closed) ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                    <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
-                    <button className="tbtn ghost" onClick={reopenMonthly}>เปิดแก้ไข</button>
-                  </span>
-                ) : (
-                  <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal || monthlyClosing}>
-                    {monthlyClosing ? "กำลังบันทึก..." : `ปิดยอดค่าใช้จ่าย ${thMonth(monthlyPeriod)}`}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {showSummary && (
-        <div className="card">
-          <p className="eyebrow">
-            <span>สรุปรายเดือน — {thMonth(summaryPeriod)}</span>
-            <span className="plain"><button className="tbtn ghost" onClick={() => setShowSummary(false)}>ปิดหน้านี้</button></span>
-          </p>
-          {!summaryData ? (
-            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
-          ) : (
-            <>
-              <div className="prrow prhead">
-                <span>รายการ</span><span>จำนวนเงิน</span><span>% ต่อยอดขาย</span>
-              </div>
-              <div className="prrow prtot">
-                <span>ยอดขายรวม</span><span>{money(summaryData.revenue)}</span><span>100.0%</span>
-              </div>
-              {COST_GROUP_ORDER.map((g) => (
-                <div className="prrow" key={g}>
-                  <span className="prname">{COST_GROUP_LABEL[g]}</span>
-                  <span>{money(summaryData.groups[g] || 0)}</span>
-                  <span>{pct(summaryData.groups[g] || 0, summaryData.revenue)}</span>
-                </div>
-              ))}
-              <div className="prrow prtot">
-                <span>Prime Cost (อาหาร+ค่าแรง)</span>
-                <span>{money((summaryData.groups.food || 0) + (summaryData.groups.labor || 0))}</span>
-                <span>{pct((summaryData.groups.food || 0) + (summaryData.groups.labor || 0), summaryData.revenue)}</span>
-              </div>
-              <div className="prrow prtot">
-                <span>กำไรจากการดำเนินงาน</span>
-                <span>{money(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0))}</span>
-                <span>{pct(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0), summaryData.revenue)}</span>
-              </div>
-              <p className="foot" style={{ marginTop: 10 }}>
-                ดึงข้อมูลสดจากสมุดบัญชีแยกประเภทใน Supabase (journal_lines) ตามวันที่จริงในเดือนนี้ — ไม่ต้องกรอกซ้ำที่ไหน
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
       {dayLoading ? (
         <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลวันที่ {thDate(date)}…</p></div>
       ) : (
@@ -2283,6 +2089,200 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 <button className="tbtn ghost" onClick={() => openSummary(monthOf(date))}>สรุปรายเดือน</button>
               </span>
             </p>
+
+            {showPayroll && (
+              <div className="card">
+                <p className="eyebrow">
+                  <span>ปิดยอดค่าแรง — {thMonth(payPeriod)}</span>
+                  <span className="plain"><button className="tbtn ghost" onClick={() => setShowPayroll(false)}>ปิดหน้านี้</button></span>
+                </p>
+                {!payData ? (
+                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                ) : (
+                  <>
+                    <div className="prrow prhead">
+                      <span>พนักงาน</span><span>ประเภท</span><span>ค่าแรงเดือนนี้</span><span>หักเงินเบิก</span><span>จ่ายจริง</span><span>วิธีจ่าย</span>
+                    </div>
+                    {payData.rows.map((r) => {
+                      const e = empById[r.id] || {};
+                      const isM = e.pay_type === "monthly";
+                      return (
+                        <div className={`prrow${isM ? "" : " dim"}`} key={r.id}>
+                          <span className="prname">{e.name}</span>
+                          <span className="prtype">{isM ? "รายเดือน" : "รายวัน · จ่ายไปแล้ว"}</span>
+                          <span>
+                            <input className="prin" inputMode="decimal" value={r.wage} disabled={!isM || r.closed}
+                              onChange={(ev) => editPay(r.id, "wage", ev.target.value)} />
+                          </span>
+                          <span>
+                            <input className="prin" inputMode="decimal" value={isM ? r.ded : ""} disabled={!isM || r.closed}
+                              onChange={(ev) => editPay(r.id, "ded", ev.target.value)} />
+                          </span>
+                          <span className="prnet">{isM ? money(A(r.wage) - A(r.ded)) : "—"}</span>
+                          <span>
+                            <select className="prsel" value={r.method} disabled={!isM || r.closed}
+                              onChange={(ev) => setPayData((d) => d && ({ ...d, rows: d.rows.map((x) => (x.id === r.id ? { ...x, method: ev.target.value } : x)) }))}>
+                              <option value="cash">สด</option>
+                              <option value="transfer">โอน</option>
+                            </select>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {payTotals && (
+                      <div className="prrow prtot">
+                        <span>รวม</span><span />
+                        <span>{money(payTotals.wage)}</span>
+                        <span>{money(payTotals.ded)}</span>
+                        <span>{money(payTotals.net)}</span>
+                        <span />
+                      </div>
+                    )}
+                    <p className="enote">
+                      คนรายวันจ่ายสดไปแล้วทุกวัน (ยอดที่โชว์คือรวมทั้งเดือน ไม่ลงบัญชีซ้ำ) — ใบสำคัญเดือนนี้ลงเฉพาะค่าแรงคนรายเดือน
+                      <br />ยอด "หักเงินเบิก" ตั้งให้เท่ายอดค้างอัตโนมัติ แก้ลงได้ · ระบบตัดเงินเบิกใบเก่าก่อน เฉพาะใบที่ยอดหักครอบคลุมเต็มใบ
+                      <br />หักเงินเบิกได้เฉพาะคนรายเดือน — คนรายวันรับเงินครบทุกวันแล้ว ไม่มีค่าแรงค้างให้หัก ถ้าคนรายวันค้างเบิกต้องเก็บเงินคืนเอง แล้วค่อยลบรายการเบิกวันนั้นออก
+                    </p>
+                    {payJournal && (
+                      <div className="je">
+                        <div className="jetitle">
+                          <span className="jeno">{payJournal.no}</span>
+                          <span>{payJournal.title} · ลงวันที่ {thDate(monthEnd(payPeriod))}</span>
+                        </div>
+                        {payJournal.lines.map((l, i) => (
+                          <div className="jline" key={i}>
+                            <span className="jcode">{l.code}</span>
+                            <span className={`jname${l.cr ? " indent" : ""}`}>{accName(l.code)}</span>
+                            <span className="jamt d">{l.dr ? money(l.dr) : ""}</span>
+                            <span className="jamt c">{l.cr ? money(l.cr) : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 12 }}>
+                      {payData.rows.every((r) => r.closed) ? (
+                        <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
+                      ) : (
+                        <button className="btn" onClick={closePayroll} disabled={!payJournal || payrollClosing}>
+                          {payrollClosing ? "กำลังบันทึก..." : `ปิดยอดค่าแรง ${thMonth(payPeriod)}`}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {showMonthly && (
+              <div className="card">
+                <p className="eyebrow">
+                  <span>ค่าใช้จ่ายรายเดือน — {thMonth(monthlyPeriod)}</span>
+                  <span className="plain"><button className="tbtn ghost" onClick={() => setShowMonthly(false)}>ปิดหน้านี้</button></span>
+                </p>
+                {!monthlyData ? (
+                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                ) : (
+                  <>
+                    <div className="prrow prhead">
+                      <span>รายการ</span><span>จำนวนเงิน</span><span>วิธีจ่าย</span>
+                    </div>
+                    {MONTHLY_ACCS.map((a) => {
+                      const r = monthlyData.rows[a.code] || { amount: "", method: "cash", closed: false };
+                      return (
+                        <div className="prrow" key={a.code}>
+                          <span className="prname">{a.label}</span>
+                          <span>
+                            <input className="prin" inputMode="decimal" placeholder="0" value={r.amount} disabled={r.closed}
+                              onChange={(ev) => editMonthlyField(a.code, "amount", ev.target.value)} />
+                          </span>
+                          <span>
+                            <select className="prsel" value={r.method} disabled={r.closed}
+                              onChange={(ev) => editMonthlyField(a.code, "method", ev.target.value)}>
+                              <option value="cash">สด</option>
+                              <option value="transfer">โอน</option>
+                            </select>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {monthlyTotals && (
+                      <div className="prrow prtot">
+                        <span>รวม</span><span>{money(monthlyTotals.total)}</span><span />
+                      </div>
+                    )}
+                    {monthlyJournal && (
+                      <div className="je">
+                        <div className="jetitle">
+                          <span className="jeno">{monthlyJournal.no}</span>
+                          <span>{monthlyJournal.title} · ลงวันที่ {thDate(monthEnd(monthlyPeriod))}</span>
+                        </div>
+                        {monthlyJournal.lines.map((l, i) => (
+                          <div className="jline" key={i}>
+                            <span className="jcode">{l.code}</span>
+                            <span className={`jname${l.cr ? " indent" : ""}`}>{accName(l.code)}</span>
+                            <span className="jamt d">{l.dr ? money(l.dr) : ""}</span>
+                            <span className="jamt c">{l.cr ? money(l.cr) : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 12 }}>
+                      {monthlyData && Object.values(monthlyData.rows).length && Object.values(monthlyData.rows).every((r) => r.closed) ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                          <span className="seal">✓ ปิดยอดเดือนนี้แล้ว</span>
+                          <button className="tbtn ghost" onClick={reopenMonthly}>เปิดแก้ไข</button>
+                        </span>
+                      ) : (
+                        <button className="btn" onClick={closeMonthly} disabled={!monthlyJournal || monthlyClosing}>
+                          {monthlyClosing ? "กำลังบันทึก..." : `ปิดยอดค่าใช้จ่าย ${thMonth(monthlyPeriod)}`}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {showSummary && (
+              <div className="card">
+                <p className="eyebrow">
+                  <span>สรุปรายเดือน — {thMonth(summaryPeriod)}</span>
+                  <span className="plain"><button className="tbtn ghost" onClick={() => setShowSummary(false)}>ปิดหน้านี้</button></span>
+                </p>
+                {!summaryData ? (
+                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                ) : (
+                  <>
+                    <div className="prrow prhead">
+                      <span>รายการ</span><span>จำนวนเงิน</span><span>% ต่อยอดขาย</span>
+                    </div>
+                    <div className="prrow prtot">
+                      <span>ยอดขายรวม</span><span>{money(summaryData.revenue)}</span><span>100.0%</span>
+                    </div>
+                    {COST_GROUP_ORDER.map((g) => (
+                      <div className="prrow" key={g}>
+                        <span className="prname">{COST_GROUP_LABEL[g]}</span>
+                        <span>{money(summaryData.groups[g] || 0)}</span>
+                        <span>{pct(summaryData.groups[g] || 0, summaryData.revenue)}</span>
+                      </div>
+                    ))}
+                    <div className="prrow prtot">
+                      <span>Prime Cost (อาหาร+ค่าแรง)</span>
+                      <span>{money((summaryData.groups.food || 0) + (summaryData.groups.labor || 0))}</span>
+                      <span>{pct((summaryData.groups.food || 0) + (summaryData.groups.labor || 0), summaryData.revenue)}</span>
+                    </div>
+                    <div className="prrow prtot">
+                      <span>กำไรจากการดำเนินงาน</span>
+                      <span>{money(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0))}</span>
+                      <span>{pct(summaryData.revenue - COST_GROUP_ORDER.reduce((s, g) => s + (summaryData.groups[g] || 0), 0), summaryData.revenue)}</span>
+                    </div>
+                    <p className="foot" style={{ marginTop: 10 }}>
+                      ดึงข้อมูลสดจากสมุดบัญชีแยกประเภทใน Supabase (journal_lines) ตามวันที่จริงในเดือนนี้ — ไม่ต้องกรอกซ้ำที่ไหน
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {showStaff && (
               <div className="staffbox">
