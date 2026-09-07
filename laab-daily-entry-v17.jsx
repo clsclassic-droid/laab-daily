@@ -696,6 +696,43 @@ function LoginScreen() {
   );
 }
 
+/* ดรอปดาวน์แนะนำร้านค้าแบบของเราเอง — ไม่ใช่ของเบราว์เซอร์
+   ค้างอยู่จนกว่าจะคลิกเลือกหรือคลิกที่อื่น ไม่ปิดเองเร็วๆ */
+function VendorPicker({ value, onChange, onCommit, className, ariaLabel, options }) {
+  const [openState, setOpenState] = useState(false);
+  const [rect, setRect] = useState(null);
+  const inputRef = useRef(null);
+  const q = value.trim();
+  const list = (q ? options.filter((v) => v.includes(q)) : options).slice(0, 8);
+
+  const openNow = () => {
+    if (inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect();
+      setRect({ top: r.bottom, left: r.left, width: r.width });
+    }
+    setOpenState(true);
+  };
+
+  return (
+    <React.Fragment>
+      <input ref={inputRef} className={className} aria-label={ariaLabel} value={value}
+        onChange={(e) => { onChange(e.target.value); openNow(); }}
+        onFocus={openNow}
+        onBlur={() => { setOpenState(false); onCommit && onCommit(value); }} />
+      {openState && list.length > 0 && rect && (
+        <div className="vdrop" style={{ position: "fixed", top: rect.top + 2, left: rect.left, width: Math.max(rect.width, 140) }}>
+          {list.map((v) => (
+            <div key={v} className="vopt"
+              onMouseDown={(e) => { e.preventDefault(); onChange(v); onCommit && onCommit(v); setOpenState(false); }}>
+              {v}
+            </div>
+          ))}
+        </div>
+      )}
+    </React.Fragment>
+  );
+}
+
 export default function LaabEntryV15() {
   const [session, setSession] = useState(undefined); // undefined = กำลังเช็ค · null = ยังไม่ล็อกอิน · object = ล็อกอินแล้ว
 
@@ -1495,9 +1532,10 @@ function LaabEntryApp({ userEmail }) {
         onChange={(e) => patchItem(it.id, { name: e.target.value })} />
       <input className="e-unit" value={it.unit} aria-label={`แก้หน่วย ${it.name}`}
         onChange={(e) => patchItem(it.id, { unit: e.target.value })} />
-      <input className="e-vend" list="vlist" value={it.vendor} aria-label={`แก้ร้านประจำ ${it.name}`}
-        onChange={(e) => { const v = e.target.value.trim() || "—"; patchItem(it.id, { vendor: v }); }}
-        onBlur={(e) => ensureVendorDB(e.target.value.trim() || "—")} />
+      <VendorPicker className="e-vend" value={it.vendor} ariaLabel={`แก้ร้านประจำ ${it.name}`}
+        onChange={(v) => patchItem(it.id, { vendor: v.trim() || "—" })}
+        onCommit={(v) => ensureVendorDB((v || "").trim() || "—")}
+        options={Object.keys(vendors)} />
       <span className="e-actions">
         <button className="e-off" onClick={() => patchItem(it.id, { off: !it.off })}>
           {it.off ? "เอากลับมา" : "เอาออก"}
@@ -1528,10 +1566,11 @@ function LaabEntryApp({ userEmail }) {
           )}
           </span>
 
-          <input className={`f-vend${pk === "ns" ? " ns" : ""}`} list="vlist" value={r.vendor}
-            aria-label={`ร้านที่ซื้อ ${it.name}`}
-            onChange={(e) => setVend(it.id, e.target.value)}
-            onBlur={(e) => ensureVendorDB(e.target.value)} />
+          <VendorPicker className={`f-vend${pk === "ns" ? " ns" : ""}`} value={r.vendor}
+            ariaLabel={`ร้านที่ซื้อ ${it.name}`}
+            onChange={(v) => setVend(it.id, v)}
+            onCommit={(v) => ensureVendorDB(v)}
+            options={Object.keys(vendors)} />
 
           <select className={`f-pay p-${pk}`} value={pk} aria-label={`วิธีจ่าย ${it.name}`}
             onChange={(e) => setPay(it.id, e.target.value)}>
@@ -1784,6 +1823,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .cmprow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
 .cmprow .p{font-family:'IBM Plex Mono',monospace}
 .cmpdate{font-family:'Sarabun',sans-serif;color:var(--soft);font-size:10.5px}
+.vdrop{z-index:50;background:#fff;border:1px solid var(--rule);border-radius:3px;
+  box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto}
+.vopt{padding:7px 9px;font-size:12.5px;font-family:'Sarabun',sans-serif;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vopt:hover{background:#F4F9FC}
 .cmprow.best{color:var(--ok);font-weight:600}
 .cmpclose{border:none;background:transparent;color:var(--soft);cursor:pointer;float:right;font-size:15px}
 
