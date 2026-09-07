@@ -992,6 +992,10 @@ function LaabEntryApp({ userEmail }) {
       setMonthlyData((d) => d && ({ rows: Object.fromEntries(Object.entries(d.rows).map(([k, v]) => [k, { ...v, closed: false }])) }));
     })());
   };
+  const reopenDay = () => {
+    if (!window.confirm(`เปิดแก้ไขค่าแรงคนงานของวันที่ ${thDate(date)} อีกครั้ง? (ต้องกด "ปิดยอดวันนี้" ใหม่หลังแก้ไขเสร็จ)`)) return;
+    setClosed(false);
+  };
 
   /* ── สรุปรายเดือน (หน้าจอ) ── */
   const openSummary = async (period) => {
@@ -2042,6 +2046,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                       </button>
                       {isOpen(c) && c === "wage" ? (
                         <div className="cbody">
+                          {closed && (
+                            <p className="enote" style={{ marginTop: 0 }}>
+                              วันนี้ปิดยอดแล้ว — แก้ไขเช็คชื่อ/ยอดค่าแรงไม่ได้{" "}
+                              <button className="tbtn ghost" onClick={reopenDay}>เปิดแก้ไข</button>
+                            </p>
+                          )}
                           {dailyEmps.length === 0 ? (
                             <p className="enote" style={{ marginTop: 0 }}>
                               ยังไม่มีพนักงานรายวันในทะเบียน — กด <b>ทะเบียนพนักงาน</b> ในการ์ด "พนักงาน" ด้านล่างเพื่อเพิ่มชื่อ
