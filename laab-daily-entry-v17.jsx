@@ -861,9 +861,11 @@ function LaabEntryApp({ userEmail }) {
     })());
   };
   const patchEmployee = (id, patch) => {
-    let updated = null;
-    setEmployeesState((p) => p.map((e) => { if (e.id !== id) return e; updated = { ...e, ...patch }; return updated; }));
-    if (updated) track(upsertEmployeeDB(updated));
+    const e = employees.find((x) => x.id === id);
+    if (!e) return;
+    const updated = { ...e, ...patch };
+    setEmployeesState((p) => p.map((x) => (x.id === id ? updated : x)));
+    track(upsertEmployeeDB(updated));
   };
 
   /* ── ปิดยอดค่าแรงรายเดือน ── */
@@ -1160,9 +1162,11 @@ function LaabEntryApp({ userEmail }) {
   };
 
   const patchItem = (id, patch) => {
-    let updated;
-    setCatalog((p) => p.map((it) => { if (it.id !== id) return it; updated = { ...it, ...patch }; return updated; }));
-    if (updated) track(upsertItemDB(updated));
+    const it = catalog.find((x) => x.id === id);
+    if (!it) return;
+    const updated = { ...it, ...patch };
+    setCatalog((p) => p.map((x) => (x.id === id ? updated : x)));
+    track(upsertItemDB(updated));
     if (patch.vendor && !vendors[patch.vendor]) { setVendors((p) => ({ ...p, [patch.vendor]: "cash" })); track(upsertVendorDB(patch.vendor, "cash")); }
   };
 
