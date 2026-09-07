@@ -2019,10 +2019,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                             const on = att[e.id] !== undefined;
                             return (
                               <div className={`attrow${on ? " on" : ""}`} key={e.id}>
-                                <label className="attname">
-                                  <input type="checkbox" checked={on} onChange={() => toggleAtt(e)} disabled={closed} />
+                                <div className="attname" role="checkbox" aria-checked={on} tabIndex={closed ? -1 : 0}
+                                  onClick={() => !closed && toggleAtt(e)}
+                                  onKeyDown={(ev) => { if (!closed && (ev.key === " " || ev.key === "Enter")) { ev.preventDefault(); toggleAtt(e); } }}>
+                                  <input type="checkbox" checked={on} readOnly tabIndex={-1} disabled={closed} />
                                   <span>{e.name}</span>
-                                </label>
+                                </div>
                                 <span className="attrate">{money(A(e.rate))}/วัน</span>
                                 <input className="attamt" inputMode="decimal" placeholder="—" disabled={!on || closed}
                                   value={focusKey === "att:" + e.id ? (att[e.id] || "") : (on ? dec(A(att[e.id])) : "")}
