@@ -1173,6 +1173,11 @@ function LaabEntryApp({ userEmail }) {
     const updated = { ...it, ...patch };
     setCatalog((p) => p.map((x) => (x.id === id ? updated : x)));
     track(upsertItemDB(updated));
+    if (patch.vendor) {
+      // แก้ "ร้านประจำ" แล้วให้มีผลทันทีกับช่องกรอกซื้อของวันที่ยังไม่ได้ซื้อจริง
+      // (ไม่ยุ่งกับประวัติการซื้อจริงในอดีต แค่ปรับค่าที่ใช้เดาในหน้าจอตอนนี้)
+      setPrevOf((p) => ({ ...p, [id]: { ...(p[id] || {}), vendor: patch.vendor } }));
+    }
     if (patch.vendor && !vendors[patch.vendor]) { setVendors((p) => ({ ...p, [patch.vendor]: "cash" })); track(upsertVendorDB(patch.vendor, "cash")); }
   };
 
