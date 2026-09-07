@@ -391,6 +391,20 @@ async function upsertItemDB(it) {
   return data.id;
 }
 
+async function deleteItemDB(id) {
+  const { data: rows, error: eSel } = await supabase.from("daily_purchases")
+    .select("id,qty,amount").eq("item_id", id);
+  if (eSel) throw eSel;
+  const hasReal = (rows || []).some((r) => (r.qty !== null && Number(r.qty) !== 0) || (r.amount !== null && Number(r.amount) !== 0));
+  if (hasReal) throw new Error('ลบไม่ได้: รายการนี้มีประวัติการซื้อจริงอยู่ — ใช้ "เอาออก" ซ่อนแทน');
+  if (rows && rows.length) {
+    const { error: eDel1 } = await supabase.from("daily_purchases").delete().eq("item_id", id);
+    if (eDel1) throw eDel1;
+  }
+  const { error: eDel2 } = await supabase.from("items").delete().eq("id", id);
+  if (eDel2) throw eDel2;
+}
+
 async function upsertVendorDB(name, payKey) {
   const { error } = await supabase.from("stores")
     .upsert({ entity: ENTITY, name, default_payment_method: PAY2DB[payKey] || "cash" }, { onConflict: "entity,name" });
@@ -1148,6 +1162,14 @@ function LaabEntryApp({ userEmail }) {
     if (patch.vendor && !vendors[patch.vendor]) { setVendors((p) => ({ ...p, [patch.vendor]: "cash" })); track(upsertVendorDB(patch.vendor, "cash")); }
   };
 
+  const deleteItem = (it) => {
+    if (!window.confirm(`ลบ "${it.name}" ถาวร? กู้คืนไม่ได้`)) return;
+    track((async () => {
+      await deleteItemDB(it.id);
+      setCatalog((p) => p.filter((x) => x.id !== it.id));
+    })());
+  };
+
   const active = useMemo(
     () => catalog.filter((it) => { const r = R(it.id); return A(r.amt) !== 0 || A(r.qty) !== 0; })
       .map((it) => ({ ...it, ...R(it.id) })),
@@ -1443,9 +1465,14 @@ function LaabEntryApp({ userEmail }) {
         onChange={(e) => patchItem(it.id, { unit: e.target.value })} />
       <input className="e-vend" list="vlist" value={it.vendor} aria-label={`แก้ร้านประจำ ${it.name}`}
         onChange={(e) => { const v = e.target.value.trim() || "—"; patchItem(it.id, { vendor: v }); }} />
-      <button className="e-off" onClick={() => patchItem(it.id, { off: !it.off })}>
-        {it.off ? "เอากลับมา" : "เอาออก"}
-      </button>
+      <span className="e-actions">
+        <button className="e-off" onClick={() => patchItem(it.id, { off: !it.off })}>
+          {it.off ? "เอากลับมา" : "เอาออก"}
+        </button>
+        {it.off && (
+          <button className="e-del" onClick={() => deleteItem(it)}>ลบถาวร</button>
+        )}
+      </span>
     </div>
   );
 
@@ -1690,12 +1717,16 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .erow input{font-family:'Sarabun',sans-serif;font-size:12.5px;border:1px solid var(--rule);
  background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0;width:100%}
 .erow input:focus{outline:none;border-color:var(--dr)}
+.e-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 .e-off{font-family:'Sarabun',sans-serif;font-size:11px;padding:6px 4px;border:1px solid var(--rule);
  background:#fff;color:var(--margin);border-radius:3px;cursor:pointer;white-space:nowrap}
 .e-off:hover{background:#FBEEEC}
+.e-del{font-family:'Sarabun',sans-serif;font-size:11px;padding:6px 4px;border:1px solid #D6453D;
+ background:#fff;color:#D6453D;border-radius:3px;cursor:pointer;white-space:nowrap}
+.e-del:hover{background:#FBEEEC}
 .enote{font-size:11px;color:var(--soft);margin:8px 0 0;line-height:1.5}
 @media(max-width:680px){.erow{grid-template-columns:minmax(0,1fr) 56px;grid-template-areas:"nm nm" "vd un" "of of";gap:4px}
- .e-name{grid-area:nm}.e-unit{grid-area:un}.e-vend{grid-area:vd}.e-off{grid-area:of;padding:7px}}
+ .e-name{grid-area:nm}.e-unit{grid-area:un}.e-vend{grid-area:vd}.e-actions{grid-area:of;justify-content:flex-start}}
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule)}
 .addrow input{font-family:'Sarabun',sans-serif;font-size:12px;border:1px solid var(--rule);
  background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0}
