@@ -1812,7 +1812,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .attrow{display:grid;grid-template-columns:minmax(0,1fr) 92px 96px;gap:8px;align-items:center;
  padding:7px 0;border-bottom:1px solid #EEF2EC}
 .attname{display:flex;align-items:center;gap:9px;font-size:13.5px;min-width:0;cursor:pointer}
-.attname input{width:17px;height:17px;accent-color:var(--ink);flex:none}
+.attname input{width:17px;height:17px;accent-color:var(--ink);flex:none;pointer-events:none}
 .attname span{overflow-wrap:anywhere}
 .attrate{font-size:11.5px;color:var(--soft);text-align:right;font-variant-numeric:tabular-nums}
 .attamt{font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;padding:6px 8px;
