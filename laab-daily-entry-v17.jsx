@@ -1080,10 +1080,18 @@ function LaabEntryApp({ userEmail }) {
     track(saveRowDB(date, id, rr));
   };
 
+  // เพิ่มร้านค้าใหม่เข้ารายชื่อจริงๆ ตอนพิมพ์ "เสร็จแล้ว" (blur) เท่านั้น
+  // กันไม่ให้ทุกตัวอักษรที่พิมพ์ระหว่างทางกลายเป็นร้านค้าขยะในระบบ
+  const ensureVendorDB = (name) => {
+    const v = (name || "").trim();
+    if (!v || v === "—" || vendors[v]) return;
+    setVendors((p) => ({ ...p, [v]: "cash" }));
+    track(upsertVendorDB(v, "cash"));
+  };
+
   const setVend = (id, v) => {
     const name = v.trim() || "—";
     const seed = R(id);
-    if (!vendors[name]) { setVendors((p) => ({ ...p, [name]: "cash" })); track(upsertVendorDB(name, "cash")); }
     const saved = { ...(rowsDataRef.current[id] || seed), vendor: name };
     rowsDataRef.current = { ...rowsDataRef.current, [id]: saved };
     setRows(() => rowsDataRef.current);
@@ -1178,7 +1186,6 @@ function LaabEntryApp({ userEmail }) {
       // (ไม่ยุ่งกับประวัติการซื้อจริงในอดีต แค่ปรับค่าที่ใช้เดาในหน้าจอตอนนี้)
       setPrevOf((p) => ({ ...p, [id]: { ...(p[id] || {}), vendor: patch.vendor } }));
     }
-    if (patch.vendor && !vendors[patch.vendor]) { setVendors((p) => ({ ...p, [patch.vendor]: "cash" })); track(upsertVendorDB(patch.vendor, "cash")); }
   };
 
   const deleteItem = (it) => {
@@ -1489,7 +1496,8 @@ function LaabEntryApp({ userEmail }) {
       <input className="e-unit" value={it.unit} aria-label={`แก้หน่วย ${it.name}`}
         onChange={(e) => patchItem(it.id, { unit: e.target.value })} />
       <input className="e-vend" list="vlist" value={it.vendor} aria-label={`แก้ร้านประจำ ${it.name}`}
-        onChange={(e) => { const v = e.target.value.trim() || "—"; patchItem(it.id, { vendor: v }); }} />
+        onChange={(e) => { const v = e.target.value.trim() || "—"; patchItem(it.id, { vendor: v }); }}
+        onBlur={(e) => ensureVendorDB(e.target.value.trim() || "—")} />
       <span className="e-actions">
         <button className="e-off" onClick={() => patchItem(it.id, { off: !it.off })}>
           {it.off ? "เอากลับมา" : "เอาออก"}
@@ -1522,7 +1530,8 @@ function LaabEntryApp({ userEmail }) {
 
           <input className={`f-vend${pk === "ns" ? " ns" : ""}`} list="vlist" value={r.vendor}
             aria-label={`ร้านที่ซื้อ ${it.name}`}
-            onChange={(e) => setVend(it.id, e.target.value)} />
+            onChange={(e) => setVend(it.id, e.target.value)}
+            onBlur={(e) => ensureVendorDB(e.target.value)} />
 
           <select className={`f-pay p-${pk}`} value={pk} aria-label={`วิธีจ่าย ${it.name}`}
             onChange={(e) => setPay(it.id, e.target.value)}>
