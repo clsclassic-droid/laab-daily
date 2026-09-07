@@ -99,20 +99,6 @@ const ACC = {
 };
 const accName = (c) => ACC[c] || Object.values(CATS).find((x) => x.code === c)?.name || MONTHLY_ACCS.find((x) => x.code === c)?.label || c;
 
-/* ราคาที่เคยซื้อจากแต่ละร้าน (ปุ่ม "เทียบ") — ยังเป็นข้อมูลสมมติ ผูกกับชื่อของ
-   ⚠ ค่อยแทนด้วยของจริงทีหลัง (ตอนนี้ยังไม่ใช่จุดสำคัญของงานย้าย Supabase) */
-const HIST = {
-  "เนื้อออส": [["เจ๊แดง", 360], ["ลุงชิด", 375], ["ตลาดสด", 342], [NS, 340]],
-  "เนื้อคอย่าง": [["ลุงชิด", 310], ["เจ๊แดง", 325]],
-  "ไส้อ่อน": [["ร้านหมูสด", 240], ["เจ๊แดง", 265]],
-  "ผ้าขี้ริ้ว": [["เจ๊แดง", 155], ["ลุงชิด", 168]],
-  "สันนอก": [["เจ๊แดง", 275], ["ลุงชิด", 290]],
-  "ตับ": [["ร้านหมูสด", 150], ["ตลาดสด", 145]],
-  "ข้าวสาร": [[NS, 32], ["ร้านชำ", 36]],
-  "พริกสด": [["ตลาดสด", 90], ["เจ๊หมวย", 105]],
-  "ขนมจีน": [["เจ๊หมวย", 45], ["ตลาดสด", 50]],
-};
-
 /* ═══════════ helper (คำนวณ — เหมือนเดิมทุกจุด ไม่เปลี่ยน) ═══════════ */
 const A = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -267,6 +253,24 @@ async function fetchPrevOf(date, catalog) {
       : { rate: "", qty: "", vendor: it.vendor, pay: "", when: null };
   });
   return map;
+}
+
+async function fetchVendorHistoryDB(itemId) {
+  const { data, error } = await supabase.from("daily_purchases")
+    .select("vendor_name, unit_price, purchase_date")
+    .eq("entity", ENTITY).eq("item_id", itemId)
+    .not("unit_price", "is", null).not("vendor_name", "is", null)
+    .order("purchase_date", { ascending: false });
+  if (error) throw error;
+  const seen = new Set(); const out = [];
+  for (const r of (data || [])) {
+    const v = r.vendor_name;
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push({ vendor: v, price: Number(r.unit_price), when: r.purchase_date });
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 async function fetchPrevCash(date) {
@@ -1015,7 +1019,9 @@ function LaabEntryApp({ userEmail }) {
   const cashCount = day.cashCount;
 
   const [open, setOpen] = useState({ meat: true, wage: true, meal: true });
-  const [compare, setCompare] = useState(null);
+  const [compare, setCompare] = useState(null); // เก็บ id ของรายการที่กำลังเทียบราคาอยู่
+  const [cmpData, setCmpData] = useState([]);
+  const [cmpLoading, setCmpLoading] = useState(false);
   const [newFor, setNewFor] = useState(null);
   const [nn, setNn] = useState(""); const [nu, setNu] = useState(""); const [nv, setNv] = useState("");
   const [q, setQ] = useState("");
@@ -1461,8 +1467,14 @@ function LaabEntryApp({ userEmail }) {
     fr.readAsText(file);
   };
 
-  const cmp = compare ? HIST[compare] : null;
-  const cmpBest = cmp ? Math.min(...cmp.map((c) => c[1])) : 0;
+  const toggleCompare = (it) => {
+    if (compare === it.id) { setCompare(null); return; }
+    setCompare(it.id); setCmpData([]); setCmpLoading(true);
+    fetchVendorHistoryDB(it.id)
+      .then(setCmpData)
+      .catch((e) => setSaveError(String((e && e.message) || e)))
+      .finally(() => setCmpLoading(false));
+  };
 
   /* ═══════════ แถวรายการ ═══════════ */
   const renderEdit = (it) => (
@@ -1497,9 +1509,7 @@ function LaabEntryApp({ userEmail }) {
           className={`irow${on ? " on" : ""}${waiting ? " wait" : ""}${hi === it.id ? " hi" : ""}`}>
           <span className="iname">
             {it.name}
-            {HIST[it.name] && (
-              <button className="cmpbtn" onClick={() => setCompare(compare === it.name ? null : it.name)}>เทียบ</button>
-            )}
+            <button className="cmpbtn" onClick={() => toggleCompare(it)}>เทียบ</button>
             {!on && prevOf[it.id] && A(prevOf[it.id].qty) > 0 && (
             <span className="yhint">{prevOf[it.id].when ? thDate(prevOf[it.id].when) : "ครั้งก่อน"} {dec(prevOf[it.id].qty)}</span>
           )}
@@ -1548,16 +1558,23 @@ function LaabEntryApp({ userEmail }) {
           </div>
         )}
 
-        {compare === it.name && cmp && (
+        {compare === it.id && (
           <div className="cmpbox">
             <button className="cmpclose" onClick={() => setCompare(null)} aria-label="ปิด">×</button>
-            <h4>{it.name} — ราคาต่อหน่วยแต่ละร้าน</h4>
-            {[...cmp].sort((a, b) => a[1] - b[1]).map(([v, p]) => (
-              <div className={`cmprow${p === cmpBest ? " best" : ""}`} key={v}>
-                <span>{v}{p === cmpBest ? " ← ถูกที่สุด" : ""}</span>
-                <span className="p">{dec(p)}</span>
-              </div>
-            ))}
+            <h4>{it.name} — ราคาล่าสุดที่เคยซื้อแต่ละร้าน</h4>
+            {cmpLoading ? (
+              <p className="enote" style={{ margin: 0 }}>กำลังโหลด...</p>
+            ) : cmpData.length === 0 ? (
+              <p className="enote" style={{ margin: 0 }}>ยังไม่มีประวัติการซื้อของรายการนี้</p>
+            ) : (() => {
+              const best = Math.min(...cmpData.map((c) => c.price));
+              return [...cmpData].sort((a, b) => a.price - b.price).map((c) => (
+                <div className={`cmprow${c.price === best ? " best" : ""}`} key={c.vendor}>
+                  <span>{c.vendor}{c.price === best ? " ← ถูกที่สุด" : ""}</span>
+                  <span className="p">{dec(c.price)} <span className="cmpdate">({thDate(c.when)})</span></span>
+                </div>
+              ));
+            })()}
           </div>
         )}
       </React.Fragment>
@@ -1752,6 +1769,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .cmpbox h4{margin:0 0 7px;font-size:12.5px;font-weight:700}
 .cmprow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
 .cmprow .p{font-family:'IBM Plex Mono',monospace}
+.cmpdate{font-family:'Sarabun',sans-serif;color:var(--soft);font-size:10.5px}
 .cmprow.best{color:var(--ok);font-weight:600}
 .cmpclose{border:none;background:transparent;color:var(--soft);cursor:pointer;float:right;font-size:15px}
 
