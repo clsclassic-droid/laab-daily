@@ -135,6 +135,13 @@ const shiftDateISO = (d, n) => {
   const dt = new Date(y, m - 1, dd + n);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 };
+const daysBetween = (fromISO, toISO) => {
+  const out = [];
+  let d = fromISO;
+  let guard = 0;
+  while (d <= toISO && guard < 3660) { out.push(d); d = shiftDateISO(d, 1); guard++; }
+  return out;
+};
 
 /* ── เดือน (period = "YYYY-MM") สำหรับปิดยอดค่าแรงรายเดือน ── */
 const monthOf = (d) => String(d).slice(0, 7);
@@ -420,6 +427,19 @@ async function upsertVendorDB(name, payKey) {
   if (error) throw error;
 }
 
+/* ── VAT: ร้านค้าที่จดทะเบียนภาษีมูลค่าเพิ่ม (ออกใบกำกับภาษีได้) ── */
+async function fetchVendorVatList() {
+  const { data, error } = await supabase.from("stores")
+    .select("name,is_vat_registered").eq("entity", ENTITY).order("name");
+  if (error) throw error;
+  return (data || []).map((r) => ({ name: r.name, vat: !!r.is_vat_registered }));
+}
+async function setVendorVatDB(name, vat) {
+  const { error } = await supabase.from("stores")
+    .update({ is_vat_registered: vat }).eq("entity", ENTITY).eq("name", name);
+  if (error) throw error;
+}
+
 async function setGrabPctDB(pct) {
   const { error } = await supabase.from("settings")
     .upsert({ entity: ENTITY, grab_commission_pct: A(pct) }, { onConflict: "entity" });
@@ -561,7 +581,7 @@ async function closePayrollDB(period, rows, journal) {
 /* ── ค่าใช้จ่ายรายเดือน (9 บัญชี นอกเหนือรายวัน) — ปิดยอดเป็นก้อนตอนสิ้นเดือน เหมือนค่าแรง ── */
 async function fetchMonthlyExpenses(period) {
   const { data, error } = await supabase.from("monthly_expenses")
-    .select("account_code,amount,payment_method,is_closed")
+    .select("account_code,amount,payment_method,is_closed,has_tax_invoice")
     .eq("entity", ENTITY).eq("period", period);
   if (error) throw error;
   const m = {};
@@ -594,6 +614,7 @@ async function closeMonthlyExpensesDB(period, rows, journal) {
   for (const [code, r] of Object.entries(rows)) {
     const { error } = await supabase.from("monthly_expenses").upsert({
       entity: ENTITY, period, account_code: code, amount: A(r.amount), payment_method: r.method || "cash",
+      has_tax_invoice: !!r.hasInvoice,
       is_closed: true, journal_entry_id: entryId, updated_at: new Date().toISOString(),
     }, { onConflict: "entity,period,account_code" });
     if (error) throw error;
@@ -676,6 +697,27 @@ async function fetchDashboardMonthly(periods) {
     const expense = COST_GROUP_ORDER.reduce((sum, g) => sum + (s.groups[g] || 0), 0);
     return { period: p, revenue: s.revenue, expense, profit: r2(s.revenue - expense) };
   });
+}
+
+/* ── VAT รายเดือน (ประมาณการ) — VAT ขาย = ยอดขาย×7/107, VAT ซื้อ = เฉพาะยอดที่มีใบกำกับภาษี ── */
+async function fetchVatSummary(period, vatVendorSet) {
+  const start = period + "-01";
+  const end = monthEnd(period);
+  const [salesRes, purchRes, mexpRes] = await Promise.all([
+    supabase.from("daily_sales").select("amount").eq("entity", ENTITY).gte("sale_date", start).lte("sale_date", end),
+    supabase.from("daily_purchases").select("amount,vendor_name").eq("entity", ENTITY).gte("purchase_date", start).lte("purchase_date", end),
+    supabase.from("monthly_expenses").select("amount,has_tax_invoice").eq("entity", ENTITY).eq("period", period),
+  ]);
+  if (salesRes.error) throw salesRes.error;
+  if (purchRes.error) throw purchRes.error;
+  if (mexpRes.error) throw mexpRes.error;
+  const revenue = (salesRes.data || []).reduce((s, r) => s + A(r.amount), 0);
+  const purchVatBase = (purchRes.data || []).reduce((s, r) => s + (r.vendor_name && vatVendorSet.has(r.vendor_name) ? A(r.amount) : 0), 0);
+  const mexpVatBase = (mexpRes.data || []).reduce((s, r) => s + (r.has_tax_invoice ? A(r.amount) : 0), 0);
+  const outputVat = r2(revenue * 7 / 107);
+  const inputVat = r2((purchVatBase + mexpVatBase) * 7 / 107);
+  const netVat = r2(outputVat - inputVat);
+  return { period, revenue, outputVat, inputVat, netVat };
 }
 
 /* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
@@ -888,28 +930,37 @@ function LineChart({ rows, series, height = 180, formatValue }) {
 function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [daily, setDaily] = useState(null);
   const [monthlyTrend, setMonthlyTrend] = useState(null);
   const [catCompare, setCatCompare] = useState(null);
+
+  const [rangeMode, setRangeMode] = useState("30d"); // "30d" | "range" | "month"
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  const [rangeMonth, setRangeMonth] = useState("");
+  const [rangeDaily, setRangeDaily] = useState(null);
+  const [rangeLoading, setRangeLoading] = useState(true);
+  const [rangeErr, setRangeErr] = useState("");
+
+  const [vendorVatList, setVendorVatList] = useState(null);
+  const [vatTrend, setVatTrend] = useState(null);
+  const [vatLoading, setVatLoading] = useState(true);
+  const [vatErr, setVatErr] = useState("");
 
   useEffect(() => {
     (async () => {
       setLoading(true); setErr("");
       try {
         const today = todayISO();
-        const from30 = shiftDateISO(today, -29);
         const curPeriod = monthOf(today);
         const prevPeriod = shiftMonth(curPeriod, -1);
         const periods = [];
         for (let i = 5; i >= 0; i--) periods.push(shiftMonth(curPeriod, -i));
 
-        const [d, mTrend, curSum, prevSum] = await Promise.all([
-          fetchDashboardDaily(from30, today),
+        const [mTrend, curSum, prevSum] = await Promise.all([
           fetchDashboardMonthly(periods),
           fetchMonthlySummary(curPeriod),
           fetchMonthlySummary(prevPeriod),
         ]);
-        setDaily(d);
         setMonthlyTrend(mTrend);
         setCatCompare({ curPeriod, prevPeriod, cur: curSum, prev: prevSum });
       } catch (e) {
@@ -920,60 +971,155 @@ function Dashboard() {
     })();
   }, []);
 
+  const today = todayISO();
+  const from30 = shiftDateISO(today, -29);
+  const effFrom = rangeMode === "month" ? (rangeMonth || monthOf(today)) + "-01" : rangeMode === "range" ? (rangeFrom || from30) : from30;
+  const effTo = rangeMode === "month" ? monthEnd(rangeMonth || monthOf(today)) : rangeMode === "range" ? (rangeTo || today) : today;
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setRangeLoading(true); setRangeErr("");
+      try {
+        const d = await fetchDashboardDaily(effFrom, effTo);
+        if (alive) setRangeDaily(d);
+      } catch (e) {
+        if (alive) setRangeErr(String((e && e.message) || e));
+      } finally {
+        if (alive) setRangeLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [effFrom, effTo]);
+
+  useEffect(() => {
+    (async () => {
+      setVatLoading(true); setVatErr("");
+      try {
+        const list = await fetchVendorVatList();
+        const vatSet = new Set(list.filter((v) => v.vat).map((v) => v.name));
+        const curPeriod = monthOf(todayISO());
+        const periods = [];
+        for (let i = 5; i >= 0; i--) periods.push(shiftMonth(curPeriod, -i));
+        const trend = await Promise.all(periods.map((p) => fetchVatSummary(p, vatSet)));
+        setVendorVatList(list);
+        setVatTrend(trend);
+      } catch (e) {
+        setVatErr(String((e && e.message) || e));
+      } finally {
+        setVatLoading(false);
+      }
+    })();
+  }, []);
+
+  const toggleVendorVat = async (name, cur) => {
+    const next = !cur;
+    setVendorVatList((list) => list.map((v) => (v.name === name ? { ...v, vat: next } : v)));
+    try {
+      await setVendorVatDB(name, next);
+    } catch (e) {
+      setVatErr(String((e && e.message) || e));
+    }
+  };
+
   if (loading) return <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลแดชบอร์ด…</p></div>;
   if (err) return <div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div>;
 
-  const today = todayISO();
-  const from30 = shiftDateISO(today, -29);
-  const days = [];
-  for (let i = 0; i < 30; i++) days.push(shiftDateISO(from30, i));
+  const rangeDays = daysBetween(effFrom, effTo);
+  const tickEvery = Math.max(1, Math.ceil(rangeDays.length / 8));
+  const rangeLabel = rangeMode === "30d" ? "30 วันล่าสุด" : rangeMode === "month" ? thMonth(rangeMonth || monthOf(today)) : `${thDate(effFrom)} – ${thDate(effTo)}`;
 
-  const salesRows = days.map((d, i) => {
-    const s = daily.salesByDate[d] || {};
+  const salesRows = rangeDaily ? rangeDays.map((d, i) => {
+    const s = rangeDaily.salesByDate[d] || {};
     return {
       cash: A(s.cash), transfer: A(s.transfer), grab: A(s.grab), thaichuaithai: A(s.thaichuaithai),
-      tick: i % 5 === 0 ? String(Number(d.slice(8, 10))) : "",
+      tick: i % tickEvery === 0 ? String(Number(d.slice(8, 10))) : "",
     };
-  });
+  }) : [];
 
-  const expRows = days.map((d, i) => ({
-    purchase: A(daily.purchByDate[d]),
-    labor: A(daily.laborByDate[d]),
-    tick: i % 5 === 0 ? String(Number(d.slice(8, 10))) : "",
-  }));
+  const expRows = rangeDaily ? rangeDays.map((d, i) => ({
+    purchase: A(rangeDaily.purchByDate[d]),
+    labor: A(rangeDaily.laborByDate[d]),
+    tick: i % tickEvery === 0 ? String(Number(d.slice(8, 10))) : "",
+  })) : [];
 
-  const curPeriod = monthOf(today);
   const channelTotals = { cash: 0, transfer: 0, grab: 0, thaichuaithai: 0 };
-  Object.entries(daily.salesByDate).forEach(([d, v]) => {
-    if (monthOf(d) === curPeriod) {
-      CHANNELS.forEach((c) => { channelTotals[c.key] += A(v[c.key]); });
-    }
-  });
+  if (rangeDaily) {
+    rangeDays.forEach((d) => {
+      const v = rangeDaily.salesByDate[d];
+      if (v) CHANNELS.forEach((c) => { channelTotals[c.key] += A(v[c.key]); });
+    });
+  }
   const channelTotal = CHANNELS.reduce((s, c) => s + channelTotals[c.key], 0);
   const monthlyRows = monthlyTrend.map((m) => ({ ...m, label: thMonth(m.period).split(" ")[0] }));
   const fmtK = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : Math.round(v));
   const expSeries = [{ key: "purchase", label: "ซื้อของ/วัตถุดิบ", color: "#A8443A" }, { key: "labor", label: "ค่าแรง", color: "#2A5A78" }];
   const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1E6E4A" }, { key: "expense", label: "รายจ่ายรวม", color: "#A8443A" }];
 
+  const RangePicker = (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}>
+      <button className={`navb${rangeMode === "30d" ? " active" : ""}`} onClick={() => setRangeMode("30d")}>30 วันล่าสุด</button>
+      <button className={`navb${rangeMode === "range" ? " active" : ""}`} onClick={() => setRangeMode("range")}>ช่วงวันที่</button>
+      <button className={`navb${rangeMode === "month" ? " active" : ""}`} onClick={() => setRangeMode("month")}>รายเดือน</button>
+      {rangeMode === "range" && (
+        <>
+          <input className="dateinput" type="date" value={rangeFrom || from30} onChange={(e) => setRangeFrom(e.target.value)} />
+          <span style={{ fontSize: 12, color: "var(--soft)" }}>ถึง</span>
+          <input className="dateinput" type="date" value={rangeTo || today} onChange={(e) => setRangeTo(e.target.value)} />
+        </>
+      )}
+      {rangeMode === "month" && (
+        <input className="dateinput" type="month" value={rangeMonth || monthOf(today)} onChange={(e) => setRangeMonth(e.target.value)} />
+      )}
+    </div>
+  );
+
   return (
     <>
       <div className="card">
-        <p className="eyebrow"><span>ยอดขาย 30 วันล่าสุด</span></p>
-        <StackedBarChart rows={salesRows} series={CHANNELS} formatValue={fmtK} />
-        <ChartLegend series={CHANNELS} />
-        <p className="eyebrow" style={{ marginTop: 18 }}><span>ช่องทางที่ขายได้มากสุด — {thMonth(curPeriod)}</span></p>
-        <div style={{ display: "flex", height: 22, borderRadius: 4, overflow: "hidden", marginTop: 4, background: "var(--field)" }}>
-          {CHANNELS.filter((c) => channelTotals[c.key] > 0).map((c) => (
-            <div key={c.key} style={{ width: `${channelTotal > 0 ? (channelTotals[c.key] / channelTotal) * 100 : 0}%`, background: c.color }} title={c.label} />
-          ))}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10 }}>
-          {CHANNELS.map((c) => (
-            <span key={c.key} style={{ fontSize: 12 }}>
-              <span style={{ color: c.color }}>●</span> {c.label} {money(channelTotals[c.key])} ({channelTotal > 0 ? pct(channelTotals[c.key], channelTotal) : "0.0%"})
-            </span>
-          ))}
-        </div>
+        <p className="eyebrow"><span>ยอดขาย — {rangeLabel}</span></p>
+        {RangePicker}
+        {rangeLoading ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+        ) : rangeErr ? (
+          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+        ) : (
+          <>
+            <StackedBarChart rows={salesRows} series={CHANNELS} formatValue={fmtK} />
+            <ChartLegend series={CHANNELS} />
+            <p className="eyebrow" style={{ marginTop: 18 }}><span>สรุปช่องทาง — {rangeLabel}</span></p>
+            <div style={{ display: "flex", height: 22, borderRadius: 4, overflow: "hidden", marginTop: 4, background: "var(--field)" }}>
+              {CHANNELS.filter((c) => channelTotals[c.key] > 0).map((c) => (
+                <div key={c.key} style={{ width: `${channelTotal > 0 ? (channelTotals[c.key] / channelTotal) * 100 : 0}%`, background: c.color }} title={c.label} />
+              ))}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10 }}>
+              {CHANNELS.map((c) => (
+                <span key={c.key} style={{ fontSize: 12 }}>
+                  <span style={{ color: c.color }}>●</span> {c.label} {money(channelTotals[c.key])} ({channelTotal > 0 ? pct(channelTotals[c.key], channelTotal) : "0.0%"})
+                </span>
+              ))}
+            </div>
+            <p className="eyebrow" style={{ marginTop: 18 }}><span>ยอดขายรายวัน</span></p>
+            <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
+              <div className="prrow prhead"><span>วันที่</span><span>เงินสด</span><span>โอน</span><span>แกร๊ป</span><span>ไทยช่วยไทย</span><span>รวม</span></div>
+              {rangeDays.map((d) => {
+                const s = (rangeDaily && rangeDaily.salesByDate[d]) || {};
+                const tot = CHANNELS.reduce((sum, c) => sum + A(s[c.key]), 0);
+                return (
+                  <div className="prrow" key={d}>
+                    <span className="prname">{thDate(d)}</span>
+                    <span>{money(A(s.cash))}</span>
+                    <span>{money(A(s.transfer))}</span>
+                    <span>{money(A(s.grab))}</span>
+                    <span>{money(A(s.thaichuaithai))}</span>
+                    <span style={{ fontWeight: 600 }}>{money(tot)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -992,10 +1138,34 @@ function Dashboard() {
       </div>
 
       <div className="card">
-        <p className="eyebrow"><span>รายจ่ายรายวัน 30 วันล่าสุด (วัตถุดิบ/ของ + ค่าแรง)</span></p>
-        <StackedBarChart rows={expRows} series={expSeries} formatValue={fmtK} />
-        <ChartLegend series={expSeries} />
-        <p className="foot" style={{ marginTop: 10 }}>ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
+        <p className="eyebrow"><span>รายจ่ายรายวัน — {rangeLabel} (วัตถุดิบ/ของ + ค่าแรง)</span></p>
+        {rangeLoading ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+        ) : rangeErr ? (
+          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+        ) : (
+          <>
+            <StackedBarChart rows={expRows} series={expSeries} formatValue={fmtK} />
+            <ChartLegend series={expSeries} />
+            <p className="foot" style={{ marginTop: 10 }}>ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
+            <p className="eyebrow" style={{ marginTop: 14 }}><span>รายจ่ายรายวัน (ตาราง)</span></p>
+            <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
+              <div className="prrow prhead"><span>วันที่</span><span>ซื้อของ</span><span>ค่าแรง</span><span>รวม</span></div>
+              {rangeDays.map((d) => {
+                const purch = A(rangeDaily && rangeDaily.purchByDate[d]);
+                const labor = A(rangeDaily && rangeDaily.laborByDate[d]);
+                return (
+                  <div className="prrow" key={d}>
+                    <span className="prname">{thDate(d)}</span>
+                    <span>{money(purch)}</span>
+                    <span>{money(labor)}</span>
+                    <span style={{ fontWeight: 600 }}>{money(purch + labor)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {catCompare && (
@@ -1019,6 +1189,43 @@ function Dashboard() {
           })}
         </div>
       )}
+
+      <div className="card">
+        <p className="eyebrow"><span>VAT ที่ต้องยื่น ภ.พ.30 รายเดือน (ประมาณการ)</span></p>
+        {vatLoading ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+        ) : vatErr ? (
+          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {vatErr}</p>
+        ) : (
+          <>
+            <div className="prrow prhead"><span>เดือน</span><span>VAT ขาย</span><span>VAT ซื้อ</span><span>ต้องนำส่ง</span></div>
+            {vatTrend.map((v) => (
+              <div className="prrow" key={v.period}>
+                <span className="prname">{thMonth(v.period)}</span>
+                <span>{money(v.outputVat)}</span>
+                <span>{money(v.inputVat)}</span>
+                <span style={{ fontWeight: 600, color: v.netVat > 0 ? "var(--margin)" : "var(--ok)" }}>
+                  {v.netVat < 0 ? `เครดิต ${money(Math.abs(v.netVat))}` : money(v.netVat)}
+                </span>
+              </div>
+            ))}
+            <p className="foot">
+              ประมาณการจากข้อมูลในระบบเท่านั้น — VAT ขาย = ยอดขาย×7/107, VAT ซื้อ = เฉพาะยอดซื้อจากร้านที่ติ๊ก "จด VAT" ด้านล่าง บวกค่าใช้จ่ายรายเดือนที่ติ๊ก "มีใบกำกับภาษี" (แก้ได้ที่หน้า "ค่าใช้จ่ายรายเดือน") ก่อนยื่นจริงทุกเดือน ควรให้นักบัญชี/สำนักงานบัญชีตรวจสอบตัวเลขอีกครั้งเสมอ
+            </p>
+            <p className="eyebrow" style={{ marginTop: 16 }}><span>ร้านค้าที่จด VAT (ออกใบกำกับภาษีได้)</span></p>
+            <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
+              {!vendorVatList || vendorVatList.length === 0 ? (
+                <p className="foot" style={{ marginTop: 0 }}>ยังไม่มีร้านค้าในระบบ</p>
+              ) : vendorVatList.map((v) => (
+                <label key={v.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12.5, borderBottom: "1px solid var(--rule)" }}>
+                  <input type="checkbox" checked={v.vat} onChange={() => toggleVendorVat(v.name, v.vat)} />
+                  {v.name}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }
@@ -1281,7 +1488,7 @@ function LaabEntryApp({ userEmail }) {
       const rows = {};
       MONTHLY_ACCS.forEach((a) => {
         const s = saved[a.code];
-        rows[a.code] = { amount: s ? String(s.amount) : "", method: (s && s.payment_method) || "cash", closed: !!(s && s.is_closed) };
+        rows[a.code] = { amount: s ? String(s.amount) : "", method: (s && s.payment_method) || "cash", closed: !!(s && s.is_closed), hasInvoice: !!(s && s.has_tax_invoice) };
       });
       setMonthlyData({ rows });
     } catch (e) { setSaveError(String((e && e.message) || e)); }
@@ -2703,10 +2910,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 ) : (
                   <>
                     <div className="prrow prhead">
-                      <span>รายการ</span><span>จำนวนเงิน</span><span>วิธีจ่าย</span>
+                      <span>รายการ</span><span>จำนวนเงิน</span><span>วิธีจ่าย</span><span>มีใบกำกับภาษี</span>
                     </div>
                     {MONTHLY_ACCS.map((a) => {
-                      const r = monthlyData.rows[a.code] || { amount: "", method: "cash", closed: false };
+                      const r = monthlyData.rows[a.code] || { amount: "", method: "cash", closed: false, hasInvoice: false };
                       return (
                         <div className="prrow" key={a.code}>
                           <span className="prname">{a.label}</span>
@@ -2720,6 +2927,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                               <option value="cash">สด</option>
                               <option value="transfer">โอน</option>
                             </select>
+                          </span>
+                          <span style={{ textAlign: "center" }}>
+                            <input type="checkbox" checked={!!r.hasInvoice} disabled={r.closed}
+                              onChange={(ev) => editMonthlyField(a.code, "hasInvoice", ev.target.checked)} />
                           </span>
                         </div>
                       );
