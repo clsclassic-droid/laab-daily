@@ -2213,9 +2213,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 <button className="tbtn ghost" onClick={() => setShowStaff((s) => !s)}>
                   {showStaff ? "ปิดทะเบียน" : "ทะเบียนพนักงาน"}
                 </button>{" "}
-                <button className="tbtn ghost" onClick={() => openPayroll(monthOf(date))}>ปิดยอดค่าแรงเดือนนี้</button>{" "}
-                <button className="tbtn ghost" onClick={() => openMonthly(monthOf(date))}>ค่าใช้จ่ายรายเดือน</button>{" "}
-                <button className="tbtn ghost" onClick={() => openSummary(monthOf(date))}>สรุปรายเดือน</button>
+                <button className="tbtn ghost" onClick={() => openPayroll(monthOf(date))}>ปิดยอดค่าแรงเดือนนี้</button>
               </span>
             </p>
 
@@ -2305,6 +2303,88 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 )}
               </div>
             )}
+
+            {showStaff && (
+              <div className="staffbox">
+                {employees.length === 0 && <p className="enote" style={{ marginTop: 0 }}>ยังไม่มีพนักงานในทะเบียน เพิ่มชื่อด้านล่างได้เลย</p>}
+                {employees.map((e) => (
+                  <div className={`emprow${e.is_active ? "" : " off"}`} key={e.id}>
+                    <input className="e-name" value={e.name} onChange={(ev) => patchEmployee(e.id, { name: ev.target.value })} />
+                    <select className="e-type" value={e.pay_type} onChange={(ev) => patchEmployee(e.id, { pay_type: ev.target.value })}>
+                      <option value="daily">รายวัน</option>
+                      <option value="monthly">รายเดือน</option>
+                    </select>
+                    <input className="e-rate" inputMode="decimal" value={String(e.rate)}
+                      onChange={(ev) => patchEmployee(e.id, { rate: numStr(ev.target.value) })} />
+                    <span className="e-unit">{e.pay_type === "daily" ? "/วัน" : "/เดือน"}</span>
+                    <button className="tbtn ghost" onClick={() => patchEmployee(e.id, { is_active: !e.is_active })}>
+                      {e.is_active ? "เอาออก" : "เอากลับมา"}
+                    </button>
+                  </div>
+                ))}
+                <div className="addrow">
+                  <input className="a-name" placeholder="ชื่อพนักงานใหม่" value={en}
+                    onChange={(ev) => setEn(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && addEmployee()} />
+                  <select className="e-type" value={ep} onChange={(ev) => setEp(ev.target.value)}>
+                    <option value="daily">รายวัน</option>
+                    <option value="monthly">รายเดือน</option>
+                  </select>
+                  <input className="a-unit" inputMode="decimal" placeholder="อัตรา" value={er}
+                    onChange={(ev) => setEr(numStr(ev.target.value))} />
+                  <button className="addbtn" onClick={addEmployee}>เพิ่ม</button>
+                </div>
+                <p className="enote">"เอาออก" = ซ่อนจากหน้ากรอก <b>ไม่ลบข้อมูลเก่า</b> — ค่าแรงที่บันทึกไปแล้วยังอยู่ครบ</p>
+              </div>
+            )}
+
+            <div className="advhead">เงินเบิกล่วงหน้าวันนี้ <em>ยังไม่ใช่ค่าแรง — หักคืนตอนปิดยอดสิ้นเดือน</em></div>
+            {advToday.map((a) => (
+              <div className="advrow" key={a.id}>
+                <span className="advname">{(empById[a.employee_id] || {}).name || "—"}</span>
+                <span className="advpay">{a.payment_method === "cash" ? "จ่ายสด" : "โอน"}</span>
+                <span className="advamt">{money(A(a.amount))}</span>
+                <button className="daydel" onClick={() => delAdvance(a.id)} disabled={closed}>ลบ</button>
+              </div>
+            ))}
+            {!closed && (
+              <div className="addrow">
+                <select className="a-name" value={advFor} onChange={(e) => setAdvFor(e.target.value)}>
+                  <option value="">เลือกพนักงาน…</option>
+                  {employees.filter((e) => e.is_active).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+                <select className="e-type" value={advPay} onChange={(e) => setAdvPay(e.target.value)}>
+                  <option value="cash">จ่ายสด</option>
+                  <option value="transfer">โอน</option>
+                </select>
+                <input className="a-unit" inputMode="decimal" placeholder="จำนวน" value={advAmt}
+                  onChange={(e) => setAdvAmt(numStr(e.target.value))} onKeyDown={(e) => e.key === "Enter" && addAdvance()} />
+                <button className="addbtn" onClick={addAdvance}>เบิก</button>
+              </div>
+            )}
+
+            {openAdv.length > 0 && (
+              <div className="owedbox">
+                <b>ยอดค้างเบิก (ยังไม่ได้หักคืน)</b>
+                {employees.filter((e) => owedBy(e.id) > 0).map((e) => (
+                  <div className="owedrow" key={e.id}>
+                    <span>{e.name}</span>
+                    <span className={owedBy(e.id) > A(e.rate) * (e.pay_type === "daily" ? 5 : 1) ? "warn" : ""}>
+                      {money(owedBy(e.id))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <p className="eyebrow">
+              <span>รายงานรายเดือน</span>
+              <span className="plain">
+                <button className="tbtn ghost" onClick={() => openMonthly(monthOf(date))}>ค่าใช้จ่ายรายเดือน</button>{" "}
+                <button className="tbtn ghost" onClick={() => openSummary(monthOf(date))}>สรุปรายเดือน</button>
+              </span>
+            </p>
 
             {showMonthly && (
               <div className="card">
@@ -2442,78 +2522,6 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                     </p>
                   </>
                 )}
-              </div>
-            )}
-
-            {showStaff && (
-              <div className="staffbox">
-                {employees.length === 0 && <p className="enote" style={{ marginTop: 0 }}>ยังไม่มีพนักงานในทะเบียน เพิ่มชื่อด้านล่างได้เลย</p>}
-                {employees.map((e) => (
-                  <div className={`emprow${e.is_active ? "" : " off"}`} key={e.id}>
-                    <input className="e-name" value={e.name} onChange={(ev) => patchEmployee(e.id, { name: ev.target.value })} />
-                    <select className="e-type" value={e.pay_type} onChange={(ev) => patchEmployee(e.id, { pay_type: ev.target.value })}>
-                      <option value="daily">รายวัน</option>
-                      <option value="monthly">รายเดือน</option>
-                    </select>
-                    <input className="e-rate" inputMode="decimal" value={String(e.rate)}
-                      onChange={(ev) => patchEmployee(e.id, { rate: numStr(ev.target.value) })} />
-                    <span className="e-unit">{e.pay_type === "daily" ? "/วัน" : "/เดือน"}</span>
-                    <button className="tbtn ghost" onClick={() => patchEmployee(e.id, { is_active: !e.is_active })}>
-                      {e.is_active ? "เอาออก" : "เอากลับมา"}
-                    </button>
-                  </div>
-                ))}
-                <div className="addrow">
-                  <input className="a-name" placeholder="ชื่อพนักงานใหม่" value={en}
-                    onChange={(ev) => setEn(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && addEmployee()} />
-                  <select className="e-type" value={ep} onChange={(ev) => setEp(ev.target.value)}>
-                    <option value="daily">รายวัน</option>
-                    <option value="monthly">รายเดือน</option>
-                  </select>
-                  <input className="a-unit" inputMode="decimal" placeholder="อัตรา" value={er}
-                    onChange={(ev) => setEr(numStr(ev.target.value))} />
-                  <button className="addbtn" onClick={addEmployee}>เพิ่ม</button>
-                </div>
-                <p className="enote">"เอาออก" = ซ่อนจากหน้ากรอก <b>ไม่ลบข้อมูลเก่า</b> — ค่าแรงที่บันทึกไปแล้วยังอยู่ครบ</p>
-              </div>
-            )}
-
-            <div className="advhead">เงินเบิกล่วงหน้าวันนี้ <em>ยังไม่ใช่ค่าแรง — หักคืนตอนปิดยอดสิ้นเดือน</em></div>
-            {advToday.map((a) => (
-              <div className="advrow" key={a.id}>
-                <span className="advname">{(empById[a.employee_id] || {}).name || "—"}</span>
-                <span className="advpay">{a.payment_method === "cash" ? "จ่ายสด" : "โอน"}</span>
-                <span className="advamt">{money(A(a.amount))}</span>
-                <button className="daydel" onClick={() => delAdvance(a.id)} disabled={closed}>ลบ</button>
-              </div>
-            ))}
-            {!closed && (
-              <div className="addrow">
-                <select className="a-name" value={advFor} onChange={(e) => setAdvFor(e.target.value)}>
-                  <option value="">เลือกพนักงาน…</option>
-                  {employees.filter((e) => e.is_active).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-                <select className="e-type" value={advPay} onChange={(e) => setAdvPay(e.target.value)}>
-                  <option value="cash">จ่ายสด</option>
-                  <option value="transfer">โอน</option>
-                </select>
-                <input className="a-unit" inputMode="decimal" placeholder="จำนวน" value={advAmt}
-                  onChange={(e) => setAdvAmt(numStr(e.target.value))} onKeyDown={(e) => e.key === "Enter" && addAdvance()} />
-                <button className="addbtn" onClick={addAdvance}>เบิก</button>
-              </div>
-            )}
-
-            {openAdv.length > 0 && (
-              <div className="owedbox">
-                <b>ยอดค้างเบิก (ยังไม่ได้หักคืน)</b>
-                {employees.filter((e) => owedBy(e.id) > 0).map((e) => (
-                  <div className="owedrow" key={e.id}>
-                    <span>{e.name}</span>
-                    <span className={owedBy(e.id) > A(e.rate) * (e.pay_type === "daily" ? 5 : 1) ? "warn" : ""}>
-                      {money(owedBy(e.id))}
-                    </span>
-                  </div>
-                ))}
               </div>
             )}
           </div>
