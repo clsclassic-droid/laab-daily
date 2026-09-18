@@ -130,6 +130,11 @@ const todayISO = () => {
   const d = String(t.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 };
+const shiftDateISO = (d, n) => {
+  const [y, m, dd] = String(d).split("-").map(Number);
+  const dt = new Date(y, m - 1, dd + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
 
 /* ── เดือน (period = "YYYY-MM") สำหรับปิดยอดค่าแรงรายเดือน ── */
 const monthOf = (d) => String(d).slice(0, 7);
@@ -627,6 +632,52 @@ async function fetchMonthlySummary(period) {
   return { revenue: r2(revenue), groups };
 }
 
+/* ── แดชบอร์ด — ยอดขาย/รายจ่าย แนวโน้ม ── */
+const CHANNELS = [
+  { key: "cash", label: "เงินสด", color: "#2A5A78" },
+  { key: "transfer", label: "เงินโอน", color: "#8A6A1F" },
+  { key: "grab", label: "เงินแกร๊ป", color: "#7A4E8C" },
+  { key: "thaichuaithai", label: "ไทยช่วยไทย", color: "#1E6E4A" },
+];
+
+async function fetchDashboardDaily(fromDate, toDate) {
+  const [salesRes, purchRes, laborRes] = await Promise.all([
+    supabase.from("daily_sales").select("sale_date,channel,amount")
+      .eq("entity", ENTITY).gte("sale_date", fromDate).lte("sale_date", toDate),
+    supabase.from("daily_purchases").select("purchase_date,amount")
+      .eq("entity", ENTITY).gte("purchase_date", fromDate).lte("purchase_date", toDate),
+    supabase.from("staff_attendance").select("work_date,amount")
+      .eq("entity", ENTITY).gte("work_date", fromDate).lte("work_date", toDate),
+  ]);
+  if (salesRes.error) throw salesRes.error;
+  if (purchRes.error) throw purchRes.error;
+  if (laborRes.error) throw laborRes.error;
+
+  const salesByDate = {};
+  (salesRes.data || []).forEach((r) => {
+    const d = salesByDate[r.sale_date] || (salesByDate[r.sale_date] = {});
+    d[r.channel] = (d[r.channel] || 0) + A(r.amount);
+  });
+  const purchByDate = {};
+  (purchRes.data || []).forEach((r) => {
+    purchByDate[r.purchase_date] = (purchByDate[r.purchase_date] || 0) + A(r.amount);
+  });
+  const laborByDate = {};
+  (laborRes.data || []).forEach((r) => {
+    laborByDate[r.work_date] = (laborByDate[r.work_date] || 0) + A(r.amount);
+  });
+  return { salesByDate, purchByDate, laborByDate };
+}
+
+async function fetchDashboardMonthly(periods) {
+  const results = await Promise.all(periods.map((p) => fetchMonthlySummary(p)));
+  return periods.map((p, i) => {
+    const s = results[i];
+    const expense = COST_GROUP_ORDER.reduce((sum, g) => sum + (s.groups[g] || 0), 0);
+    return { period: p, revenue: s.revenue, expense, profit: r2(s.revenue - expense) };
+  });
+}
+
 /* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
 async function saveJournalsDB(date, journals) {
   /* ลบเฉพาะใบสำคัญของ "รายวัน" — ใบค่าแรงรายเดือน (payroll) ที่ลงวันสุดท้ายของเดือนต้องไม่ถูกลบทิ้ง */
@@ -733,6 +784,245 @@ function VendorPicker({ value, onChange, onCommit, className, ariaLabel, options
   );
 }
 
+/* ── ชิ้นส่วนกราฟ (SVG ธรรมดา ไม่พึ่งไลบรารีเพิ่ม) ── */
+function ChartLegend({ series }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6 }}>
+      {series.map((s) => (
+        <span key={s.key} style={{ fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color, display: "inline-block" }} />
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function StackedBarChart({ rows, series, height = 170, formatValue }) {
+  const width = 700, padL = 46, padB = 22, padT = 10, padR = 10;
+  const chartW = width - padL - padR, chartH = height - padT - padB;
+  const totals = rows.map((r) => series.reduce((s, sr) => s + A(r[sr.key]), 0));
+  const max = Math.max(1, ...totals);
+  const barW = chartW / rows.length;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 0.5, 1].map((f) => {
+        const y = padT + chartH * (1 - f);
+        return (
+          <g key={f}>
+            <line x1={padL} x2={width - padR} y1={y} y2={y} stroke="#E3E9E0" strokeWidth={1} />
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">
+              {formatValue ? formatValue(max * f) : Math.round(max * f)}
+            </text>
+          </g>
+        );
+      })}
+      {rows.map((r, i) => {
+        let yOffset = 0;
+        const x = padL + i * barW + barW * 0.18;
+        const bw = Math.max(1, barW * 0.64);
+        return (
+          <g key={i}>
+            {series.map((sr) => {
+              const v = A(r[sr.key]);
+              const h = max > 0 ? (v / max) * chartH : 0;
+              const y = padT + chartH - yOffset - h;
+              yOffset += h;
+              return h > 0.4 ? <rect key={sr.key} x={x} y={y} width={bw} height={h} fill={sr.color} /> : null;
+            })}
+            {r.tick && (
+              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
+                {r.tick}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function LineChart({ rows, series, height = 180, formatValue }) {
+  const width = 700, padL = 50, padB = 24, padT = 10, padR = 10;
+  const chartW = width - padL - padR, chartH = height - padT - padB;
+  const allVals = rows.flatMap((r) => series.map((s) => A(r[s.key])));
+  const max = Math.max(1, ...allVals);
+  const stepX = rows.length > 1 ? chartW / (rows.length - 1) : 0;
+  const pathFor = (key) => rows.map((r, i) => {
+    const x = padL + i * stepX;
+    const y = padT + chartH - (A(r[key]) / max) * chartH;
+    return `${i === 0 ? "M" : "L"}${x},${y}`;
+  }).join(" ");
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 0.5, 1].map((f) => {
+        const y = padT + chartH * (1 - f);
+        return (
+          <g key={f}>
+            <line x1={padL} x2={width - padR} y1={y} y2={y} stroke="#E3E9E0" strokeWidth={1} />
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">
+              {formatValue ? formatValue(max * f) : Math.round(max * f)}
+            </text>
+          </g>
+        );
+      })}
+      {series.map((s) => <path key={s.key} d={pathFor(s.key)} fill="none" stroke={s.color} strokeWidth={2} />)}
+      {series.map((s) => rows.map((r, i) => {
+        const x = padL + i * stepX;
+        const y = padT + chartH - (A(r[s.key]) / max) * chartH;
+        return <circle key={s.key + i} cx={x} cy={y} r={2.6} fill={s.color} />;
+      }))}
+      {rows.map((r, i) => {
+        const x = padL + i * stepX;
+        return (
+          <text key={i} x={x} y={height - 4} textAnchor="middle" fontSize={9} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
+            {r.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── หน้าแดชบอร์ด ── */
+function Dashboard() {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [daily, setDaily] = useState(null);
+  const [monthlyTrend, setMonthlyTrend] = useState(null);
+  const [catCompare, setCatCompare] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setErr("");
+      try {
+        const today = todayISO();
+        const from30 = shiftDateISO(today, -29);
+        const curPeriod = monthOf(today);
+        const prevPeriod = shiftMonth(curPeriod, -1);
+        const periods = [];
+        for (let i = 5; i >= 0; i--) periods.push(shiftMonth(curPeriod, -i));
+
+        const [d, mTrend, curSum, prevSum] = await Promise.all([
+          fetchDashboardDaily(from30, today),
+          fetchDashboardMonthly(periods),
+          fetchMonthlySummary(curPeriod),
+          fetchMonthlySummary(prevPeriod),
+        ]);
+        setDaily(d);
+        setMonthlyTrend(mTrend);
+        setCatCompare({ curPeriod, prevPeriod, cur: curSum, prev: prevSum });
+      } catch (e) {
+        setErr(String((e && e.message) || e));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลแดชบอร์ด…</p></div>;
+  if (err) return <div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div>;
+
+  const today = todayISO();
+  const from30 = shiftDateISO(today, -29);
+  const days = [];
+  for (let i = 0; i < 30; i++) days.push(shiftDateISO(from30, i));
+
+  const salesRows = days.map((d, i) => {
+    const s = daily.salesByDate[d] || {};
+    return {
+      cash: A(s.cash), transfer: A(s.transfer), grab: A(s.grab), thaichuaithai: A(s.thaichuaithai),
+      tick: i % 5 === 0 ? String(Number(d.slice(8, 10))) : "",
+    };
+  });
+
+  const expRows = days.map((d, i) => ({
+    purchase: A(daily.purchByDate[d]),
+    labor: A(daily.laborByDate[d]),
+    tick: i % 5 === 0 ? String(Number(d.slice(8, 10))) : "",
+  }));
+
+  const curPeriod = monthOf(today);
+  const channelTotals = { cash: 0, transfer: 0, grab: 0, thaichuaithai: 0 };
+  Object.entries(daily.salesByDate).forEach(([d, v]) => {
+    if (monthOf(d) === curPeriod) {
+      CHANNELS.forEach((c) => { channelTotals[c.key] += A(v[c.key]); });
+    }
+  });
+  const channelTotal = CHANNELS.reduce((s, c) => s + channelTotals[c.key], 0);
+  const monthlyRows = monthlyTrend.map((m) => ({ ...m, label: thMonth(m.period).split(" ")[0] }));
+  const fmtK = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : Math.round(v));
+  const expSeries = [{ key: "purchase", label: "ซื้อของ/วัตถุดิบ", color: "#A8443A" }, { key: "labor", label: "ค่าแรง", color: "#2A5A78" }];
+  const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1E6E4A" }, { key: "expense", label: "รายจ่ายรวม", color: "#A8443A" }];
+
+  return (
+    <>
+      <div className="card">
+        <p className="eyebrow"><span>ยอดขาย 30 วันล่าสุด</span></p>
+        <StackedBarChart rows={salesRows} series={CHANNELS} formatValue={fmtK} />
+        <ChartLegend series={CHANNELS} />
+        <p className="eyebrow" style={{ marginTop: 18 }}><span>ช่องทางที่ขายได้มากสุด — {thMonth(curPeriod)}</span></p>
+        <div style={{ display: "flex", height: 22, borderRadius: 4, overflow: "hidden", marginTop: 4, background: "var(--field)" }}>
+          {CHANNELS.filter((c) => channelTotals[c.key] > 0).map((c) => (
+            <div key={c.key} style={{ width: `${channelTotal > 0 ? (channelTotals[c.key] / channelTotal) * 100 : 0}%`, background: c.color }} title={c.label} />
+          ))}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10 }}>
+          {CHANNELS.map((c) => (
+            <span key={c.key} style={{ fontSize: 12 }}>
+              <span style={{ color: c.color }}>●</span> {c.label} {money(channelTotals[c.key])} ({channelTotal > 0 ? pct(channelTotals[c.key], channelTotal) : "0.0%"})
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <p className="eyebrow"><span>แนวโน้มรายเดือน — ยอดขาย vs รายจ่าย (6 เดือน)</span></p>
+        <LineChart rows={monthlyRows} series={trendSeries} formatValue={fmtK} />
+        <ChartLegend series={trendSeries} />
+        <div className="prrow prhead" style={{ marginTop: 14 }}><span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span></div>
+        {monthlyTrend.map((m) => (
+          <div className="prrow" key={m.period}>
+            <span className="prname">{thMonth(m.period)}</span>
+            <span>{money(m.revenue)}</span>
+            <span>{money(m.expense)}</span>
+            <span style={{ color: m.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.profit)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <p className="eyebrow"><span>รายจ่ายรายวัน 30 วันล่าสุด (วัตถุดิบ/ของ + ค่าแรง)</span></p>
+        <StackedBarChart rows={expRows} series={expSeries} formatValue={fmtK} />
+        <ChartLegend series={expSeries} />
+        <p className="foot" style={{ marginTop: 10 }}>ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
+      </div>
+
+      {catCompare && (
+        <div className="card">
+          <p className="eyebrow"><span>หมวดรายจ่าย — {thMonth(catCompare.curPeriod)} เทียบ {thMonth(catCompare.prevPeriod)}</span></p>
+          <div className="prrow prhead"><span>หมวด</span><span>{thMonth(catCompare.curPeriod)}</span><span>{thMonth(catCompare.prevPeriod)}</span><span>เปลี่ยนแปลง</span></div>
+          {COST_GROUP_ORDER.map((g) => {
+            const cur = catCompare.cur.groups[g] || 0;
+            const prev = catCompare.prev.groups[g] || 0;
+            const diff = r2(cur - prev);
+            return (
+              <div className="prrow" key={g}>
+                <span className="prname">{COST_GROUP_LABEL[g]}</span>
+                <span>{money(cur)}</span>
+                <span>{money(prev)}</span>
+                <span style={{ color: diff > 0 ? "var(--margin)" : diff < 0 ? "var(--ok)" : undefined }}>
+                  {diff === 0 ? "—" : `${diff > 0 ? "▲" : "▼"} ${money(Math.abs(diff))}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function LaabEntryV15() {
   const [session, setSession] = useState(undefined); // undefined = กำลังเช็ค · null = ยังไม่ล็อกอิน · object = ล็อกอินแล้ว
 
@@ -766,6 +1056,7 @@ function LaabEntryApp({ userEmail }) {
   const [att, setAttState] = useState({});        // employee_id → ยอดค่าแรงวันนี้ (string)
   const [advToday, setAdvToday] = useState([]);   // เงินเบิกที่เบิกในวันที่เลือก
   const [openAdv, setOpenAdv] = useState([]);     // เงินเบิกที่ยังไม่ได้หักคืน (ทุกวัน)
+  const [view, setView] = useState("daily"); // "daily" | "dashboard"
   const [showStaff, setShowStaff] = useState(false);
   const [showPayroll, setShowPayroll] = useState(false);
   const [payPeriod, setPayPeriod] = useState(monthOf(todayISO()));
@@ -1659,6 +1950,7 @@ function LaabEntryApp({ userEmail }) {
 .navb{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1;padding:6px 9px;border:1px solid var(--rule);
  background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
 .navb:hover{background:var(--field)}
+.navb.active{background:var(--ink);color:#fff;border-color:var(--ink)}
 .navb.wide{font-size:11.5px;font-weight:600}
 .userchip{font-size:11px;color:var(--soft)}
 .dayrow{display:flex;align-items:center;gap:10px;padding:6px 2px;border-bottom:1px solid #EEF2EC;font-size:12.5px}
@@ -1979,14 +2271,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <div className="dright">
           <span className="userchip">{userEmail}</span>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
-          <button className="navb" onClick={() => shiftDay(-1)} aria-label="วันก่อนหน้า">‹</button>
-          <span className="dtext">{thDate(date)}</span>
-          <button className="navb" onClick={() => shiftDay(1)} aria-label="วันถัดไป">›</button>
-          <input className="dateinput" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button className="navb wide" onClick={openDaysPanel}>วันที่บันทึกไว้</button>
+          <button className={`navb${view === "dashboard" ? " active" : ""}`}
+            onClick={() => setView((v) => (v === "dashboard" ? "daily" : "dashboard"))}>
+            {view === "dashboard" ? "← กลับไปบันทึกประจำวัน" : "แดชบอร์ด"}
+          </button>
+          {view === "daily" && (
+            <React.Fragment>
+              <button className="navb" onClick={() => shiftDay(-1)} aria-label="วันก่อนหน้า">‹</button>
+              <span className="dtext">{thDate(date)}</span>
+              <button className="navb" onClick={() => shiftDay(1)} aria-label="วันถัดไป">›</button>
+              <input className="dateinput" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <button className="navb wide" onClick={openDaysPanel}>วันที่บันทึกไว้</button>
+            </React.Fragment>
+          )}
         </div>
       </div>
 
+      {view === "daily" && (
+      <React.Fragment>
       {saveError && (
         <div className="alertbar red" style={{ marginBottom: 14 }} onClick={() => setSaveError("")}>
           ⚠ บันทึกขึ้นฐานข้อมูลไม่สำเร็จ: {saveError} (กดข้อความนี้เพื่อปิด)
@@ -2646,6 +2948,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         </div>
       </div>
       )}
+      </React.Fragment>
+      )}
+      {view === "dashboard" && <Dashboard />}
     </div>
   );
 }
