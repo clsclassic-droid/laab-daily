@@ -690,12 +690,31 @@ async function fetchDashboardDaily(fromDate, toDate) {
   return { salesByDate, purchByDate, laborByDate };
 }
 
+async function fetchDepreciation(period, code) {
+  const start = period + "-01";
+  const end = monthEnd(period);
+  const { data, error } = await supabase.from("journal_lines")
+    .select("debit,credit,journal_entries!inner(entry_date,entity)")
+    .eq("account_code", code)
+    .eq("journal_entries.entity", ENTITY)
+    .gte("journal_entries.entry_date", start)
+    .lte("journal_entries.entry_date", end);
+  if (error) throw error;
+  return (data || []).reduce((s, r) => s + (A(r.debit) - A(r.credit)), 0);
+}
+
 async function fetchDashboardMonthly(periods) {
-  const results = await Promise.all(periods.map((p) => fetchMonthlySummary(p)));
+  const [results, deps] = await Promise.all([
+    Promise.all(periods.map((p) => fetchMonthlySummary(p))),
+    Promise.all(periods.map((p) => fetchDepreciation(p, "6420-LS"))),
+  ]);
   return periods.map((p, i) => {
     const s = results[i];
     const expense = COST_GROUP_ORDER.reduce((sum, g) => sum + (s.groups[g] || 0), 0);
-    return { period: p, revenue: s.revenue, expense, profit: r2(s.revenue - expense) };
+    const profit = r2(s.revenue - expense);
+    const foodCost = s.groups.food || 0;
+    const ebitda = r2(profit + (deps[i] || 0));
+    return { period: p, revenue: s.revenue, expense, profit, foodCost, ebitda };
   });
 }
 
@@ -1126,15 +1145,18 @@ function Dashboard() {
         <p className="eyebrow"><span>แนวโน้มรายเดือน — ยอดขาย vs รายจ่าย (6 เดือน)</span></p>
         <LineChart rows={monthlyRows} series={trendSeries} formatValue={fmtK} />
         <ChartLegend series={trendSeries} />
-        <div className="prrow prhead" style={{ marginTop: 14 }}><span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span></div>
+        <div className="prrow prhead" style={{ marginTop: 14 }}><span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span><span>Gross Margin</span><span>EBITDA</span></div>
         {monthlyTrend.map((m) => (
           <div className="prrow" key={m.period}>
             <span className="prname">{thMonth(m.period)}</span>
             <span>{money(m.revenue)}</span>
             <span>{money(m.expense)}</span>
             <span style={{ color: m.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.profit)}</span>
+            <span>{m.revenue > 0 ? pct(m.revenue - m.foodCost, m.revenue) : "—"}</span>
+            <span style={{ color: m.ebitda >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.ebitda)}</span>
           </div>
         ))}
+        <p className="foot">Gross Margin = (ยอดขาย − ต้นทุนอาหาร/เครื่องดื่ม) ÷ ยอดขาย · EBITDA = กำไร + บวกค่าเสื่อมราคากลับ (รายจ่ายที่ไม่ใช่เงินสดจริง)</p>
       </div>
 
       <div className="card">
