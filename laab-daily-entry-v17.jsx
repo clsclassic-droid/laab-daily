@@ -646,6 +646,7 @@ async function fetchMonthlySummary(period) {
     if (acc.account_type === "revenue") {
       revenue += A(r.credit) - A(r.debit);
     } else if (acc.account_type === "expense") {
+      if (r.account_code === "7010") return; // ภาษีเงินได้นิติบุคคล — แยกหักตอนคำนวณกำไรสุทธิ ไม่รวมในค่าใช้จ่ายดำเนินงาน
       const g = acc.cost_group || "waste_misc";
       groups[g] = r2((groups[g] || 0) + A(r.debit) - A(r.credit));
     }
@@ -690,7 +691,7 @@ async function fetchDashboardDaily(fromDate, toDate) {
   return { salesByDate, purchByDate, laborByDate };
 }
 
-async function fetchDepreciation(period, code) {
+async function fetchAccountTotal(period, code) {
   const start = period + "-01";
   const end = monthEnd(period);
   const { data, error } = await supabase.from("journal_lines")
@@ -704,17 +705,21 @@ async function fetchDepreciation(period, code) {
 }
 
 async function fetchDashboardMonthly(periods) {
-  const [results, deps] = await Promise.all([
+  const [results, deps, taxes] = await Promise.all([
     Promise.all(periods.map((p) => fetchMonthlySummary(p))),
-    Promise.all(periods.map((p) => fetchDepreciation(p, "6420-LS"))),
+    Promise.all(periods.map((p) => fetchAccountTotal(p, "6420-LS"))),
+    Promise.all(periods.map((p) => fetchAccountTotal(p, "7010"))),
   ]);
   return periods.map((p, i) => {
     const s = results[i];
     const expense = COST_GROUP_ORDER.reduce((sum, g) => sum + (s.groups[g] || 0), 0);
     const profit = r2(s.revenue - expense);
     const foodCost = s.groups.food || 0;
-    const ebitda = r2(profit + (deps[i] || 0));
-    return { period: p, revenue: s.revenue, expense, profit, foodCost, ebitda };
+    const depreciation = r2(deps[i] || 0);
+    const tax = r2(taxes[i] || 0);
+    const ebitda = r2(profit + depreciation);
+    const netProfitAfterTax = r2(profit - tax);
+    return { period: p, revenue: s.revenue, expense, profit, foodCost, depreciation, tax, ebitda, netProfitAfterTax };
   });
 }
 
@@ -1072,6 +1077,8 @@ function Dashboard() {
   const channelTotal = CHANNELS.reduce((s, c) => s + channelTotals[c.key], 0);
   const monthlyRows = monthlyTrend.map((m) => ({ ...m, label: thMonth(m.period).split(" ")[0] }));
   const fmtK = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : Math.round(v));
+  const vatByPeriod = {};
+  (vatTrend || []).forEach((v) => { vatByPeriod[v.period] = v; });
   const expSeries = [{ key: "purchase", label: "ซื้อของ/วัตถุดิบ", color: "#A8443A" }, { key: "labor", label: "ค่าแรง", color: "#2A5A78" }];
   const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1E6E4A" }, { key: "expense", label: "รายจ่ายรวม", color: "#A8443A" }];
 
@@ -1145,18 +1152,34 @@ function Dashboard() {
         <p className="eyebrow"><span>แนวโน้มรายเดือน — ยอดขาย vs รายจ่าย (6 เดือน)</span></p>
         <LineChart rows={monthlyRows} series={trendSeries} formatValue={fmtK} />
         <ChartLegend series={trendSeries} />
-        <div className="prrow prhead" style={{ marginTop: 14 }}><span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span><span>Gross Margin</span><span>EBITDA</span></div>
-        {monthlyTrend.map((m) => (
-          <div className="prrow" key={m.period}>
-            <span className="prname">{thMonth(m.period)}</span>
-            <span>{money(m.revenue)}</span>
-            <span>{money(m.expense)}</span>
-            <span style={{ color: m.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.profit)}</span>
-            <span>{m.revenue > 0 ? pct(m.revenue - m.foodCost, m.revenue) : "—"}</span>
-            <span style={{ color: m.ebitda >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.ebitda)}</span>
+        <div style={{ overflowX: "auto", marginTop: 14 }}>
+          <div style={{ minWidth: 970 }}>
+            <div className="trendrow prhead">
+              <span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span><span>Gross Margin</span><span>EBITDA</span><span>ภาษี</span><span>ค่าเสื่อมราคา</span><span>กำไรสุทธิ</span><span>กำไรหลังหัก VAT</span>
+            </div>
+            {monthlyTrend.map((m) => {
+              const v = vatByPeriod[m.period];
+              const profitAfterVat = v ? r2(m.netProfitAfterTax - v.netVat) : null;
+              return (
+                <div className="trendrow" key={m.period}>
+                  <span className="prname">{thMonth(m.period)}</span>
+                  <span>{money(m.revenue)}</span>
+                  <span>{money(m.expense)}</span>
+                  <span style={{ color: m.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.profit)}</span>
+                  <span>{m.revenue > 0 ? pct(m.revenue - m.foodCost, m.revenue) : "—"}</span>
+                  <span style={{ color: m.ebitda >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.ebitda)}</span>
+                  <span>{money(m.tax)}</span>
+                  <span>{money(m.depreciation)}</span>
+                  <span style={{ fontWeight: 600, color: m.netProfitAfterTax >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.netProfitAfterTax)}</span>
+                  <span style={{ fontWeight: 600, color: profitAfterVat === null ? undefined : profitAfterVat >= 0 ? "var(--ok)" : "var(--margin)" }}>
+                    {profitAfterVat === null ? "…" : money(profitAfterVat)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        ))}
-        <p className="foot">Gross Margin = (ยอดขาย − ต้นทุนอาหาร/เครื่องดื่ม) ÷ ยอดขาย · EBITDA = กำไร + บวกค่าเสื่อมราคากลับ (รายจ่ายที่ไม่ใช่เงินสดจริง)</p>
+        </div>
+        <p className="foot">Gross Margin = (ยอดขาย − ต้นทุนอาหาร/เครื่องดื่ม) ÷ ยอดขาย · EBITDA = กำไร + บวกค่าเสื่อมราคากลับ · กำไรสุทธิ = กำไร − ภาษี (ยังเป็น 0 เพราะยังไม่เคยลงบัญชีภาษีเงินได้หรือค่าเสื่อมราคาเลย) · กำไรหลังหัก VAT = กำไรสุทธิ − VAT ที่ต้องนำส่งเดือนนั้น (ดูรายละเอียดที่การ์ด VAT ด้านล่าง)</p>
       </div>
 
       <div className="card">
@@ -2462,6 +2485,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .prin{font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:right;padding:5px 7px;width:100%;
  border:1px solid var(--rule);border-radius:3px;background:#fff;box-sizing:border-box}
 .prin:disabled{background:transparent;border-color:transparent;color:var(--soft)}
+.trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 108px;gap:8px;align-items:center;
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
+.trendrow.prhead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
 @media(max-width:640px){
   .prrow{grid-template-columns:minmax(0,1fr) 76px 76px 76px;row-gap:3px}
   .prrow>span:nth-child(2),.prrow.prhead>span:nth-child(6),.prrow>span:nth-child(6){display:none}
