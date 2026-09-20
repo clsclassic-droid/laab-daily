@@ -1256,17 +1256,23 @@ function Dashboard() {
             <p className="eyebrow" style={{ marginTop: 14 }}><span>รายจ่ายรายวัน (ตาราง)</span></p>
             <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
               <div className="prrow prhead" style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
-                <span>วันที่</span><span>ซื้อของ</span><span>ค่าแรง</span><span>รวม</span>
+                <span>วันที่</span><span>อาหาร/เครื่องดื่ม</span><span>ค่าแรง</span><span>ขนส่ง/น้ำมัน</span><span>ของใช้สิ้นเปลือง</span><span>รวม</span>
               </div>
               {rangeDays.map((d) => {
-                const purch = A(rangeDaily && rangeDaily.purchByDate[d]);
-                const labor = A(rangeDaily && rangeDaily.laborByDate[d]);
+                const g = (rangeDaily && rangeDaily.purchGroupByDate[d]) || {};
+                const food = A(g.food);
+                const transport = A(g.transport);
+                const wasteMisc = A(g.waste_misc);
+                const labor = A(rangeDaily && rangeDaily.laborByDate[d]) + A(g.labor);
+                const tot = food + labor + transport + wasteMisc;
                 return (
                   <div className="prrow" key={d}>
                     <span className="prname">{thDate(d)}</span>
-                    <span>{money(purch)}</span>
+                    <span>{money(food)}</span>
                     <span>{money(labor)}</span>
-                    <span style={{ fontWeight: 600 }}>{money(purch + labor)}</span>
+                    <span>{money(transport)}</span>
+                    <span>{money(wasteMisc)}</span>
+                    <span style={{ fontWeight: 600 }}>{money(tot)}</span>
                   </div>
                 );
               })}
