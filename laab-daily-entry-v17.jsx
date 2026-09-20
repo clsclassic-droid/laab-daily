@@ -666,7 +666,8 @@ async function fetchDashboardDaily(fromDate, toDate) {
   const [salesRes, purchRes, laborRes] = await Promise.all([
     supabase.from("daily_sales").select("sale_date,channel,amount")
       .eq("entity", ENTITY).gte("sale_date", fromDate).lte("sale_date", toDate),
-    supabase.from("daily_purchases").select("purchase_date,amount")
+    // ดึงหมวด (cost_group) ของแต่ละรายการซื้อผ่าน items → accounts เพื่อแบ่งกราฟรายจ่ายรายวันเป็นหมวดๆ
+    supabase.from("daily_purchases").select("purchase_date,amount,items(account_code,accounts(cost_group))")
       .eq("entity", ENTITY).gte("purchase_date", fromDate).lte("purchase_date", toDate),
     supabase.from("staff_attendance").select("work_date,amount")
       .eq("entity", ENTITY).gte("work_date", fromDate).lte("work_date", toDate),
@@ -681,14 +682,18 @@ async function fetchDashboardDaily(fromDate, toDate) {
     d[r.channel] = (d[r.channel] || 0) + A(r.amount);
   });
   const purchByDate = {};
+  const purchGroupByDate = {};
   (purchRes.data || []).forEach((r) => {
     purchByDate[r.purchase_date] = (purchByDate[r.purchase_date] || 0) + A(r.amount);
+    const cg = (r.items && r.items.accounts && r.items.accounts.cost_group) || "waste_misc";
+    const g = purchGroupByDate[r.purchase_date] || (purchGroupByDate[r.purchase_date] = {});
+    g[cg] = (g[cg] || 0) + A(r.amount);
   });
   const laborByDate = {};
   (laborRes.data || []).forEach((r) => {
     laborByDate[r.work_date] = (laborByDate[r.work_date] || 0) + A(r.amount);
   });
-  return { salesByDate, purchByDate, laborByDate };
+  return { salesByDate, purchByDate, purchGroupByDate, laborByDate };
 }
 
 async function fetchAccountTotal(period, code) {
@@ -1088,14 +1093,20 @@ function Dashboard() {
     const s = (rangeDaily && rangeDaily.salesByDate[d]) || {};
     return { date: d, cash: A(s.cash), transfer: A(s.transfer), grab: A(s.grab), thaichuaithai: A(s.thaichuaithai) };
   });
-  const expByDay = rangeDays.map((d) => ({
-    date: d,
-    purchase: A(rangeDaily && rangeDaily.purchByDate[d]),
-    labor: A(rangeDaily && rangeDaily.laborByDate[d]),
-  }));
+  const expByDay = rangeDays.map((d) => {
+    const g = (rangeDaily && rangeDaily.purchGroupByDate[d]) || {};
+    // ค่าแรง = ค่าจ้างจากตารางเข้างาน + รายการซื้อที่จัดหมวดเป็น labor เอง (เช่น ค่าข้าวพนักงาน)
+    return {
+      date: d,
+      food: A(g.food),
+      transport: A(g.transport),
+      waste_misc: A(g.waste_misc),
+      labor: A(rangeDaily && rangeDaily.laborByDate[d]) + A(g.labor),
+    };
+  });
 
   const salesTrimmed = rangeDaily ? trimZeroEdges(salesByDay, ["cash", "transfer", "grab", "thaichuaithai"]) : [];
-  const expTrimmed = rangeDaily ? trimZeroEdges(expByDay, ["purchase", "labor"]) : [];
+  const expTrimmed = rangeDaily ? trimZeroEdges(expByDay, ["food", "transport", "waste_misc", "labor"]) : [];
   const tickEverySales = Math.max(1, Math.ceil(salesTrimmed.length / 10));
   const tickEveryExp = Math.max(1, Math.ceil(expTrimmed.length / 10));
 
@@ -1118,7 +1129,12 @@ function Dashboard() {
   const fmtK = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : Math.round(v));
   const vatByPeriod = {};
   (vatTrend || []).forEach((v) => { vatByPeriod[v.period] = v; });
-  const expSeries = [{ key: "purchase", label: "ซื้อของ/วัตถุดิบ", color: "#A8443A" }, { key: "labor", label: "ค่าแรง", color: "#2A5A78" }];
+  const expSeries = [
+    { key: "food", label: "ต้นทุนอาหาร/เครื่องดื่ม", color: "#A8443A" },
+    { key: "labor", label: "ค่าแรง", color: "#2A5A78" },
+    { key: "transport", label: "ค่าขนส่ง/น้ำมัน", color: "#8A6A1F" },
+    { key: "waste_misc", label: "ของใช้สิ้นเปลือง/บรรจุภัณฑ์", color: "#7A4E8C" },
+  ];
   const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1E6E4A" }, { key: "expense", label: "รายจ่ายรวม", color: "#A8443A" }];
 
   const RangePicker = (
@@ -1227,7 +1243,7 @@ function Dashboard() {
       </div>
 
       <div className="card">
-        <p className="eyebrow"><span>รายจ่ายรายวัน — {rangeLabel} (วัตถุดิบ/ของ + ค่าแรง)</span></p>
+        <p className="eyebrow"><span>รายจ่ายรายวัน — {rangeLabel} (แยกตามหมวด)</span></p>
         {rangeLoading ? (
           <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : rangeErr ? (
@@ -1236,7 +1252,7 @@ function Dashboard() {
           <>
             <StackedBarChart rows={expRows} series={expSeries} formatValue={fmtK} />
             <ChartLegend series={expSeries} />
-            <p className="foot" style={{ marginTop: 10 }}>ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
+            <p className="foot" style={{ marginTop: 10 }}>แบ่งหมวดตามบัญชีของแต่ละรายการที่ซื้อ (เหมือนตาราง "หมวดรายจ่าย" ด้านล่าง) · ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ค่าน้ำ POS ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
             <p className="eyebrow" style={{ marginTop: 14 }}><span>รายจ่ายรายวัน (ตาราง)</span></p>
             <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
               <div className="prrow prhead" style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
