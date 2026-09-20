@@ -1153,9 +1153,9 @@ function Dashboard() {
         <LineChart rows={monthlyRows} series={trendSeries} formatValue={fmtK} />
         <ChartLegend series={trendSeries} />
         <div style={{ overflowX: "auto", marginTop: 14 }}>
-          <div style={{ minWidth: 970 }}>
+          <div style={{ minWidth: 1070 }}>
             <div className="trendrow prhead">
-              <span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span><span>Gross Margin</span><span>EBITDA</span><span>ภาษี</span><span>ค่าเสื่อมราคา</span><span>กำไรสุทธิ</span><span>กำไรหลังหัก VAT</span>
+              <span>เดือน</span><span>ยอดขาย</span><span>รายจ่ายรวม</span><span>กำไร</span><span>Gross Margin</span><span>EBITDA</span><span>ภาษี</span><span>ค่าเสื่อมราคา</span><span>กำไรสุทธิ</span><span>VAT ต้องนำส่ง</span><span>กำไรหลังหัก VAT</span>
             </div>
             {monthlyTrend.map((m) => {
               const v = vatByPeriod[m.period];
@@ -1171,6 +1171,9 @@ function Dashboard() {
                   <span>{money(m.tax)}</span>
                   <span>{money(m.depreciation)}</span>
                   <span style={{ fontWeight: 600, color: m.netProfitAfterTax >= 0 ? "var(--ok)" : "var(--margin)" }}>{money(m.netProfitAfterTax)}</span>
+                  <span style={{ color: v ? (v.netVat > 0 ? "var(--margin)" : "var(--ok)") : undefined }}>
+                    {v ? (v.netVat < 0 ? `เครดิต ${money(Math.abs(v.netVat))}` : money(v.netVat)) : "…"}
+                  </span>
                   <span style={{ fontWeight: 600, color: profitAfterVat === null ? undefined : profitAfterVat >= 0 ? "var(--ok)" : "var(--margin)" }}>
                     {profitAfterVat === null ? "…" : money(profitAfterVat)}
                   </span>
@@ -1179,7 +1182,7 @@ function Dashboard() {
             })}
           </div>
         </div>
-        <p className="foot">Gross Margin = (ยอดขาย − ต้นทุนอาหาร/เครื่องดื่ม) ÷ ยอดขาย · EBITDA = กำไร + บวกค่าเสื่อมราคากลับ · กำไรสุทธิ = กำไร − ภาษี (ยังเป็น 0 เพราะยังไม่เคยลงบัญชีภาษีเงินได้หรือค่าเสื่อมราคาเลย) · กำไรหลังหัก VAT = กำไรสุทธิ − VAT ที่ต้องนำส่งเดือนนั้น (ดูรายละเอียดที่การ์ด VAT ด้านล่าง)</p>
+        <p className="foot">Gross Margin = (ยอดขาย − ต้นทุนอาหาร/เครื่องดื่ม) ÷ ยอดขาย · EBITDA = กำไร + บวกค่าเสื่อมราคากลับ · <b>กำไรสุทธิ</b> = กำไร − ภาษีเงินได้ (ยังเป็น 0 เพราะยังไม่เคยลงบัญชีภาษีเงินได้หรือค่าเสื่อมราคาเลย) · <b>กำไรหลังหัก VAT</b> = กำไรสุทธิ − VAT ที่ต้องนำส่งเดือนนั้น (เป็นคนละภาษีกับภาษีเงินได้ — ดูรายละเอียดที่การ์ด VAT ด้านล่าง) · ตัวเลขทั้งสองคอลัมน์นี้ดูใกล้กันในหลายเดือนเพราะข้อมูลยังไม่ครบ (ภาษีเงินได้ = 0 เสมอ, VAT = 0 ในเดือนที่นำเข้าข้อมูลเก่าจาก Excel) ไม่ใช่เพราะเป็นตัวเดียวกัน</p>
       </div>
 
       <div className="card">
@@ -2485,7 +2488,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .prin{font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:right;padding:5px 7px;width:100%;
  border:1px solid var(--rule);border-radius:3px;background:#fff;box-sizing:border-box}
 .prin:disabled{background:transparent;border-color:transparent;color:var(--soft)}
-.trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 108px;gap:8px;align-items:center;
+.trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 100px 108px;gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
 .trendrow.prhead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
 @media(max-width:640px){
