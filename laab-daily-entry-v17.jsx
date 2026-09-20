@@ -1167,7 +1167,9 @@ function Dashboard() {
             </div>
             <p className="eyebrow" style={{ marginTop: 18 }}><span>ยอดขายรายวัน</span></p>
             <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
-              <div className="prrow prhead"><span>วันที่</span><span>เงินสด</span><span>โอน</span><span>แกร๊ป</span><span>ไทยช่วยไทย</span><span>รวม</span></div>
+              <div className="prrow prhead" style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                <span>วันที่</span><span>เงินสด</span><span>โอน</span><span>แกร๊ป</span><span>ไทยช่วยไทย</span><span>รวม</span>
+              </div>
               {rangeDays.map((d) => {
                 const s = (rangeDaily && rangeDaily.salesByDate[d]) || {};
                 const tot = CHANNELS.reduce((sum, c) => sum + A(s[c.key]), 0);
@@ -1237,7 +1239,9 @@ function Dashboard() {
             <p className="foot" style={{ marginTop: 10 }}>ไม่รวมค่าใช้จ่ายรายเดือนคงที่ (ค่าเช่า ค่าไฟ ฯลฯ) เพราะลงบัญชีเป็นก้อนตอนปิดยอดสิ้นเดือนเท่านั้น ไม่มีตัวเลขรายวัน</p>
             <p className="eyebrow" style={{ marginTop: 14 }}><span>รายจ่ายรายวัน (ตาราง)</span></p>
             <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
-              <div className="prrow prhead"><span>วันที่</span><span>ซื้อของ</span><span>ค่าแรง</span><span>รวม</span></div>
+              <div className="prrow prhead" style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                <span>วันที่</span><span>ซื้อของ</span><span>ค่าแรง</span><span>รวม</span>
+              </div>
               {rangeDays.map((d) => {
                 const purch = A(rangeDaily && rangeDaily.purchByDate[d]);
                 const labor = A(rangeDaily && rangeDaily.laborByDate[d]);
