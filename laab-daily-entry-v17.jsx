@@ -723,25 +723,40 @@ async function fetchDashboardMonthly(periods) {
   });
 }
 
-/* ── VAT รายเดือน (ประมาณการ) — VAT ขาย = ยอดขาย×7/107, VAT ซื้อ = เฉพาะยอดที่มีใบกำกับภาษี ── */
+/* ── VAT รายเดือน (ประมาณการ) — VAT ขาย = ยอดขายจากบัญชี×7/107 (ตรวจสอบกับตารางยอดขายรายวันด้วย), VAT ซื้อ = เฉพาะยอดที่มีใบกำกับภาษี ── */
 async function fetchVatSummary(period, vatVendorSet) {
   const start = period + "-01";
   const end = monthEnd(period);
-  const [salesRes, purchRes, mexpRes] = await Promise.all([
+  const [journalRes, salesRes, purchRes, mexpRes] = await Promise.all([
+    supabase.from("journal_lines")
+      .select("debit,credit,accounts(account_type),journal_entries!inner(entry_date,entity)")
+      .eq("journal_entries.entity", ENTITY)
+      .gte("journal_entries.entry_date", start)
+      .lte("journal_entries.entry_date", end),
     supabase.from("daily_sales").select("amount").eq("entity", ENTITY).gte("sale_date", start).lte("sale_date", end),
     supabase.from("daily_purchases").select("amount,vendor_name").eq("entity", ENTITY).gte("purchase_date", start).lte("purchase_date", end),
     supabase.from("monthly_expenses").select("amount,has_tax_invoice").eq("entity", ENTITY).eq("period", period),
   ]);
+  if (journalRes.error) throw journalRes.error;
   if (salesRes.error) throw salesRes.error;
   if (purchRes.error) throw purchRes.error;
   if (mexpRes.error) throw mexpRes.error;
-  const revenue = (salesRes.data || []).reduce((s, r) => s + A(r.amount), 0);
+  // ยอดขายจริง = ยอดตามบัญชี (journal_lines บัญชีรายได้) เหมือนกับตาราง "แนวโน้มรายเดือน" — ไม่ใช้ตาราง daily_sales
+  // เป็นตัวหลัก เพราะเดือนที่นำเข้าข้อมูลเก่าจาก Excel จะไม่มีแถวในตาราง daily_sales เลย ทำให้ VAT ขายออกมาเป็น 0 ผิดพลาด
+  const revenue = (journalRes.data || []).reduce((s, r) => {
+    const acc = r.accounts;
+    if (!acc || acc.account_type !== "revenue") return s;
+    return s + A(r.credit) - A(r.debit);
+  }, 0);
+  const dailySalesTotal = (salesRes.data || []).reduce((s, r) => s + A(r.amount), 0);
+  // ตรวจสอบว่ายอดขายจากบัญชี ตรงกับผลรวมตาราง daily_sales หรือไม่ (ต่างกันเกิน 1 บาท ถือว่าไม่ตรง — เตือนไว้ อย่านำไปยื่นโดยไม่เช็ค)
+  const revenueMismatch = Math.abs(r2(revenue) - r2(dailySalesTotal)) > 1;
   const purchVatBase = (purchRes.data || []).reduce((s, r) => s + (r.vendor_name && vatVendorSet.has(r.vendor_name) ? A(r.amount) : 0), 0);
   const mexpVatBase = (mexpRes.data || []).reduce((s, r) => s + (r.has_tax_invoice ? A(r.amount) : 0), 0);
   const outputVat = r2(revenue * 7 / 107);
   const inputVat = r2((purchVatBase + mexpVatBase) * 7 / 107);
   const netVat = r2(outputVat - inputVat);
-  return { period, revenue, outputVat, inputVat, netVat };
+  return { period, revenue: r2(revenue), dailySalesTotal: r2(dailySalesTotal), revenueMismatch, outputVat, inputVat, netVat };
 }
 
 /* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
@@ -864,15 +879,15 @@ function ChartLegend({ series }) {
   );
 }
 
-function StackedBarChart({ rows, series, height = 170, formatValue }) {
-  const width = 700, padL = 46, padB = 22, padT = 10, padR = 10;
+function StackedBarChart({ rows, series, height = 190, formatValue }) {
+  const width = 700, padL = 46, padB = 22, padT = 20, padR = 10;
   const chartW = width - padL - padR, chartH = height - padT - padB;
   const totals = rows.map((r) => series.reduce((s, sr) => s + A(r[sr.key]), 0));
   const max = Math.max(1, ...totals);
-  const barW = chartW / rows.length;
+  const barW = rows.length ? chartW / rows.length : chartW;
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {[0, 0.5, 1].map((f) => {
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
         const y = padT + chartH * (1 - f);
         return (
           <g key={f}>
@@ -887,6 +902,7 @@ function StackedBarChart({ rows, series, height = 170, formatValue }) {
         let yOffset = 0;
         const x = padL + i * barW + barW * 0.18;
         const bw = Math.max(1, barW * 0.64);
+        const total = A(totals[i]);
         return (
           <g key={i}>
             {series.map((sr) => {
@@ -896,6 +912,12 @@ function StackedBarChart({ rows, series, height = 170, formatValue }) {
               yOffset += h;
               return h > 0.4 ? <rect key={sr.key} x={x} y={y} width={bw} height={h} fill={sr.color} /> : null;
             })}
+            {total > 0 && (
+              <text x={x + bw / 2} y={padT + chartH - yOffset - 4} textAnchor="middle" fontSize={8}
+                fill="#3A453E" fontFamily="'IBM Plex Mono',monospace">
+                {formatValue ? formatValue(total) : Math.round(total)}
+              </text>
+            )}
             {r.tick && (
               <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
                 {r.tick}
@@ -1050,22 +1072,39 @@ function Dashboard() {
   if (err) return <div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div>;
 
   const rangeDays = daysBetween(effFrom, effTo);
-  const tickEvery = Math.max(1, Math.ceil(rangeDays.length / 8));
   const rangeLabel = rangeMode === "30d" ? "30 วันล่าสุด" : rangeMode === "month" ? thMonth(rangeMonth || monthOf(today)) : `${thDate(effFrom)} – ${thDate(effTo)}`;
 
-  const salesRows = rangeDaily ? rangeDays.map((d, i) => {
-    const s = rangeDaily.salesByDate[d] || {};
-    return {
-      cash: A(s.cash), transfer: A(s.transfer), grab: A(s.grab), thaichuaithai: A(s.thaichuaithai),
-      tick: i % tickEvery === 0 ? String(Number(d.slice(8, 10))) : "",
-    };
-  }) : [];
+  // ตัดวันที่ไม่มีข้อมูลเลย (ทุกช่องทาง/รายการ = 0) ที่หัว-ท้ายช่วงออกจากกราฟ เพื่อไม่ให้เสียพื้นที่กราฟไปกับวันว่าง
+  // (ตารางรายวันด้านล่างกราฟยังคงแสดงครบทุกวันเหมือนเดิม ไม่ตัด)
+  const trimZeroEdges = (rows, keys) => {
+    const sum = (r) => keys.reduce((s, k) => s + A(r[k]), 0);
+    let start = 0, end = rows.length - 1;
+    while (start <= end && sum(rows[start]) === 0) start++;
+    while (end >= start && sum(rows[end]) === 0) end--;
+    return start > end ? [] : rows.slice(start, end + 1);
+  };
 
-  const expRows = rangeDaily ? rangeDays.map((d, i) => ({
-    purchase: A(rangeDaily.purchByDate[d]),
-    labor: A(rangeDaily.laborByDate[d]),
-    tick: i % tickEvery === 0 ? String(Number(d.slice(8, 10))) : "",
-  })) : [];
+  const salesByDay = rangeDays.map((d) => {
+    const s = (rangeDaily && rangeDaily.salesByDate[d]) || {};
+    return { date: d, cash: A(s.cash), transfer: A(s.transfer), grab: A(s.grab), thaichuaithai: A(s.thaichuaithai) };
+  });
+  const expByDay = rangeDays.map((d) => ({
+    date: d,
+    purchase: A(rangeDaily && rangeDaily.purchByDate[d]),
+    labor: A(rangeDaily && rangeDaily.laborByDate[d]),
+  }));
+
+  const salesTrimmed = rangeDaily ? trimZeroEdges(salesByDay, ["cash", "transfer", "grab", "thaichuaithai"]) : [];
+  const expTrimmed = rangeDaily ? trimZeroEdges(expByDay, ["purchase", "labor"]) : [];
+  const tickEverySales = Math.max(1, Math.ceil(salesTrimmed.length / 10));
+  const tickEveryExp = Math.max(1, Math.ceil(expTrimmed.length / 10));
+
+  const salesRows = salesTrimmed.map((r, i) => ({
+    ...r, tick: i % tickEverySales === 0 ? String(Number(r.date.slice(8, 10))) : "",
+  }));
+  const expRows = expTrimmed.map((r, i) => ({
+    ...r, tick: i % tickEveryExp === 0 ? String(Number(r.date.slice(8, 10))) : "",
+  }));
 
   const channelTotals = { cash: 0, transfer: 0, grab: 0, thaichuaithai: 0 };
   if (rangeDaily) {
@@ -1249,7 +1288,13 @@ function Dashboard() {
             <div className="prrow prhead"><span>เดือน</span><span>VAT ขาย</span><span>VAT ซื้อ</span><span>ต้องนำส่ง</span></div>
             {vatTrend.map((v) => (
               <div className="prrow" key={v.period}>
-                <span className="prname">{thMonth(v.period)}</span>
+                <span className="prname">
+                  {thMonth(v.period)}
+                  {v.revenueMismatch && (
+                    <span title={`ยอดขายตามบัญชี ${money(v.revenue)} แต่ยอดในตารางขายรายวัน (daily_sales) รวมได้ ${money(v.dailySalesTotal)} — ไม่ตรงกัน เดือนนี้อาจเป็นข้อมูลนำเข้าเก่า ควรตรวจสอบก่อนยื่นจริง`}
+                      style={{ color: "var(--margin)", marginLeft: 4, cursor: "help" }}>⚠</span>
+                  )}
+                </span>
                 <span>{money(v.outputVat)}</span>
                 <span>{money(v.inputVat)}</span>
                 <span style={{ fontWeight: 600, color: v.netVat > 0 ? "var(--margin)" : "var(--ok)" }}>
@@ -1258,7 +1303,7 @@ function Dashboard() {
               </div>
             ))}
             <p className="foot">
-              ประมาณการจากข้อมูลในระบบเท่านั้น — VAT ขาย = ยอดขาย×7/107, VAT ซื้อ = เฉพาะยอดซื้อจากร้านที่ติ๊ก "จด VAT" ด้านล่าง บวกค่าใช้จ่ายรายเดือนที่ติ๊ก "มีใบกำกับภาษี" (แก้ได้ที่หน้า "ค่าใช้จ่ายรายเดือน") ก่อนยื่นจริงทุกเดือน ควรให้นักบัญชี/สำนักงานบัญชีตรวจสอบตัวเลขอีกครั้งเสมอ
+              ประมาณการจากข้อมูลในระบบเท่านั้น — VAT ขาย = ยอดขายตามบัญชี×7/107, VAT ซื้อ = เฉพาะยอดซื้อจากร้านที่ติ๊ก "จด VAT" ด้านล่าง บวกค่าใช้จ่ายรายเดือนที่ติ๊ก "มีใบกำกับภาษี" (แก้ได้ที่หน้า "ค่าใช้จ่ายรายเดือน") · เครื่องหมาย <b style={{ color: "var(--margin)" }}>⚠</b> = ยอดขายตามบัญชีกับยอดรวมตารางขายรายวันไม่ตรงกัน (มักเป็นเดือนที่นำเข้าข้อมูลเก่าแบบไม่แยกรายวัน) ชี้ที่เครื่องหมายเพื่อดูตัวเลขทั้งสองฝั่ง · ก่อนยื่นจริงทุกเดือน ควรให้นักบัญชี/สำนักงานบัญชีตรวจสอบตัวเลขอีกครั้งเสมอ
             </p>
             <p className="eyebrow" style={{ marginTop: 16 }}><span>ร้านค้าที่จด VAT (ออกใบกำกับภาษีได้)</span></p>
             <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
