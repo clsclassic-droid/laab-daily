@@ -294,14 +294,13 @@ async function fetchPrevCash(date) {
 }
 
 async function fetchSavedDatesSummary() {
-  const [pr, sr, cr] = await Promise.all([
-    supabase.from("daily_purchases").select("purchase_date,amount").eq("entity", ENTITY),
-    supabase.from("daily_sales").select("sale_date,amount").eq("entity", ENTITY),
-    supabase.from("cash_counts").select("count_date,is_closed").eq("entity", ENTITY),
+  /* ดึงทีละหน้า (fetchAllRows) — Supabase ส่งกลับครั้งละไม่เกิน 1000 แถว ถ้าดึงครั้งเดียววันเก่าๆ จะหายจากรายการ */
+  const [prData, srData, crData] = await Promise.all([
+    fetchAllRows(() => supabase.from("daily_purchases").select("purchase_date,amount").eq("entity", ENTITY).order("purchase_date").order("id")),
+    fetchAllRows(() => supabase.from("daily_sales").select("sale_date,amount").eq("entity", ENTITY).order("sale_date").order("id")),
+    fetchAllRows(() => supabase.from("cash_counts").select("count_date,is_closed").eq("entity", ENTITY).order("count_date").order("id")),
   ]);
-  if (pr.error) throw pr.error;
-  if (sr.error) throw sr.error;
-  if (cr.error) throw cr.error;
+  const pr = { data: prData }, sr = { data: srData }, cr = { data: crData };
   const map = {};
   const get = (d) => (map[d] || (map[d] = { d, inn: 0, outn: 0, closed: false }));
   (pr.data || []).forEach((r) => { get(r.purchase_date).outn += A(r.amount); });
@@ -310,6 +309,9 @@ async function fetchSavedDatesSummary() {
   return Object.values(map).sort((a, b) => (a.d < b.d ? 1 : -1));
 }
 
+/* ใบสำคัญที่ลงวันที่เดียวกันได้ แต่ไม่ได้มาจากหน้าบันทึกรายวัน — ห้ามลบ/เขียนทับจากหน้ารายวัน */
+const NON_DAY_SOURCES = "(payroll,monthly_expense,ap_payment)";
+
 async function deleteDayDB(date) {
   await Promise.all([
     supabase.from("daily_purchases").delete().eq("entity", ENTITY).eq("purchase_date", date),
@@ -317,7 +319,9 @@ async function deleteDayDB(date) {
     supabase.from("cash_counts").delete().eq("entity", ENTITY).eq("count_date", date),
     supabase.from("staff_attendance").delete().eq("entity", ENTITY).eq("work_date", date),
     supabase.from("staff_advances").delete().eq("entity", ENTITY).eq("advance_date", date),
-    supabase.from("journal_entries").delete().eq("entity", ENTITY).eq("entry_date", date),
+    /* ใบที่ไม่ใช่ข้อมูลของ "วัน" ไม่ลบไปพร้อมกัน — ค่าแรงรายเดือน (PR) / ค่าใช้จ่ายรายเดือน (ME) ที่ลงวันสิ้นเดือน
+       จัดการที่หน้าปิดยอดของมันเอง · ใบจ่ายชำระเจ้าหนี้ (PV) จัดการที่หน้าเจ้าหนี้ */
+    supabase.from("journal_entries").delete().eq("entity", ENTITY).eq("entry_date", date).not("source_type", "in", NON_DAY_SOURCES),
   ]);
 }
 
@@ -327,7 +331,7 @@ async function fetchDayRaw(date) {
     supabase.from("daily_purchases").select("*").eq("entity", ENTITY).eq("purchase_date", date),
     supabase.from("daily_sales").select("*").eq("entity", ENTITY).eq("sale_date", date),
     supabase.from("cash_counts").select("*").eq("entity", ENTITY).eq("count_date", date),
-    supabase.from("journal_entries").select("*, journal_lines(*)").eq("entity", ENTITY).eq("entry_date", date),
+    supabase.from("journal_entries").select("*, journal_lines(*)").eq("entity", ENTITY).eq("entry_date", date).not("source_type", "in", NON_DAY_SOURCES),
     supabase.from("staff_attendance").select("*").eq("entity", ENTITY).eq("work_date", date),
     supabase.from("staff_advances").select("*").eq("entity", ENTITY).eq("advance_date", date),
   ]);
@@ -764,11 +768,143 @@ async function fetchVatSummary(period, vatVendorSet) {
   return { period, revenue: r2(revenue), dailySalesTotal: r2(dailySalesTotal), revenueMismatch, outputVat, inputVat, netVat };
 }
 
+/* ═══════════════════════════════════════════════════════════
+   ═══════════ เจ้าหนี้รายร้าน + บันทึกจ่ายชำระ (เพิ่ม 1 ต.ค. 69) ═══════════
+   ยอดค้าง = ยอดซื้อเชื่อ/ค้างจ่ายร้านในเครือ (จาก daily_purchases ทุกวัน) − ยอดที่จ่ายแล้ว (vendor_payments)
+   จ่ายชำระ → ใบสำคัญ PV-YYMMDD-n : เดบิต 2010/2100  เครดิต 1010 (สด) / 1020 (โอน)
+   ═══════════════════════════════════════════════════════════ */
+const AP_ACC = { credit: "2010-LS", intercompany: "2100-LS" };
+const pvNo = (d, n) => { const p = parts(d); return `PV-${String(p.y).slice(2)}${String(p.m).padStart(2, "0")}${String(p.d).padStart(2, "0")}-${n}`; };
+
+/* Supabase ส่งกลับได้ครั้งละไม่เกิน 1000 แถว — ดึงทีละหน้าจนครบ (ข้อมูลซื้อของเกิน 1000 แถวแล้วในไม่กี่เดือน) */
+async function fetchAllRows(makeQuery) {
+  const out = [];
+  const size = 1000;
+  for (let from = 0; from < 200000; from += size) {
+    const { data, error } = await makeQuery().range(from, from + size - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < size) break;
+  }
+  return out;
+}
+
+async function fetchPayables() {
+  const [storesRes, purchases, payments, ledger] = await Promise.all([
+    supabase.from("stores").select("name,default_payment_method").eq("entity", ENTITY),
+    fetchAllRows(() => supabase.from("daily_purchases")
+      .select("id,purchase_date,vendor_name,payment_method_override,amount")
+      .eq("entity", ENTITY).not("amount", "is", null).order("purchase_date").order("id")),
+    fetchAllRows(() => supabase.from("vendor_payments")
+      .select("id,payment_date,vendor_name,account_code,amount,payment_method,voucher_no,note,journal_entry_id,created_at")
+      .eq("entity", ENTITY).order("payment_date").order("created_at")),
+    fetchAllRows(() => supabase.from("journal_lines")
+      .select("account_code,debit,credit,journal_entries!inner(entity)")
+      .eq("journal_entries.entity", ENTITY).in("account_code", ["2010-LS", "2100-LS"]).order("id")),
+  ]);
+  if (storesRes.error) throw storesRes.error;
+  const storePm = {};
+  (storesRes.data || []).forEach((s) => { storePm[s.name] = s.default_payment_method || "cash"; });
+
+  /* แยกรายร้าน + บัญชี (ร้านเดียวอาจมีทั้งเชื่อและค้างจ่ายในเครือ จึงแยกเป็นคนละแถว) */
+  const map = {};
+  const get = (vendor, acc) => {
+    const k = vendor + "|" + acc;
+    return map[k] || (map[k] = { key: k, vendor, account: acc, billsByDate: {}, payments: [], billed: 0, paid: 0 });
+  };
+  purchases.forEach((p) => {
+    const vendor = p.vendor_name && p.vendor_name !== "—" ? p.vendor_name : "ไม่ระบุร้าน";
+    const pm = p.payment_method_override || storePm[p.vendor_name] || "cash";
+    const acc = AP_ACC[pm];
+    if (!acc || !A(p.amount)) return;
+    const g = get(vendor, acc);
+    g.billsByDate[p.purchase_date] = r2((g.billsByDate[p.purchase_date] || 0) + A(p.amount));
+    g.billed = r2(g.billed + A(p.amount));
+  });
+  payments.forEach((p) => {
+    const g = get(p.vendor_name, p.account_code);
+    g.payments.push(p);
+    g.paid = r2(g.paid + A(p.amount));
+  });
+
+  const rows = Object.values(map).map((g) => {
+    /* ตัดจ่ายบิลเก่าสุดก่อน (FIFO) เพื่อหาว่าบิลไหนยังค้าง และค้างมาตั้งแต่วันไหน */
+    let left = g.paid;
+    const bills = Object.keys(g.billsByDate).sort().map((d) => {
+      const amt = g.billsByDate[d];
+      const cover = Math.min(amt, Math.max(0, left));
+      left = r2(left - cover);
+      return { date: d, amount: amt, unpaid: r2(amt - cover) };
+    });
+    const unpaidBills = bills.filter((b) => b.unpaid > 0.005);
+    return {
+      ...g,
+      balance: r2(g.billed - g.paid),
+      oldest: unpaidBills.length ? unpaidBills[0].date : null,
+      unpaidBills,
+    };
+  }).sort((a, b) => b.balance - a.balance || a.vendor.localeCompare(b.vendor, "th"));
+
+  const ledgerBalance = r2(ledger.reduce((s, l) => s + A(l.credit) - A(l.debit), 0));
+  return { rows, ledgerBalance };
+}
+
+/* บันทึกจ่ายชำระเจ้าหนี้ — เขียนใบสำคัญก่อน แล้วค่อยเขียนรายการจ่าย (ถ้าขั้นที่ 2 พลาด ลบใบสำคัญทิ้ง ไม่ให้ค้างครึ่งๆ กลางๆ) */
+async function addVendorPaymentDB({ date, vendor, account, amount, method, note }) {
+  const amt = r2(A(amount));
+  if (!(amt > 0)) throw new Error("ยอดจ่ายต้องมากกว่า 0");
+  const { count, error: eCnt } = await supabase.from("vendor_payments")
+    .select("id", { count: "exact", head: true }).eq("entity", ENTITY).eq("payment_date", date);
+  if (eCnt) throw eCnt;
+  const no = pvNo(date, (count || 0) + 1);
+  const { data: entry, error: e1 } = await supabase.from("journal_entries")
+    .insert({ entity: ENTITY, entry_date: date, voucher_no: no, description: `จ่ายชำระเจ้าหนี้ — ${vendor}`, source_type: "ap_payment" })
+    .select("id").single();
+  if (e1) throw e1;
+  try {
+    const cashAcc = method === "transfer" ? "1020-LS" : "1010-LS";
+    const { error: e2 } = await supabase.from("journal_lines").insert([
+      { entry_id: entry.id, account_code: account, debit: amt, credit: 0, memo: vendor },
+      { entry_id: entry.id, account_code: cashAcc, debit: 0, credit: amt, memo: vendor },
+    ]);
+    if (e2) throw e2;
+    const { error: e3 } = await supabase.from("vendor_payments").insert({
+      entity: ENTITY, payment_date: date, vendor_name: vendor, account_code: account, amount: amt,
+      payment_method: method === "transfer" ? "transfer" : "cash", voucher_no: no, note: note || null, journal_entry_id: entry.id,
+    });
+    if (e3) throw e3;
+  } catch (e) {
+    await supabase.from("journal_entries").delete().eq("id", entry.id);
+    throw e;
+  }
+  return no;
+}
+
+/* ลบรายการจ่าย (กรณีบันทึกผิด) — ลบใบสำคัญที่ผูกไว้ด้วย บรรทัดบัญชีถูกลบตามอัตโนมัติ */
+async function deleteVendorPaymentDB(p) {
+  const { error: e1 } = await supabase.from("vendor_payments").delete().eq("id", p.id);
+  if (e1) throw e1;
+  if (p.journal_entry_id) {
+    const { error: e2 } = await supabase.from("journal_entries").delete().eq("id", p.journal_entry_id);
+    if (e2) throw e2;
+  }
+}
+
+/* จ่ายเจ้าหนี้ในวันที่เลือก — ใช้หักเงินสดในลิ้นชักหน้าบันทึกรายวัน */
+async function fetchApPaymentsOnDate(date) {
+  const { data, error } = await supabase.from("vendor_payments")
+    .select("id,vendor_name,amount,payment_method,voucher_no").eq("entity", ENTITY).eq("payment_date", date).order("created_at");
+  if (error) throw error;
+  return data || [];
+}
+
 /* บันทึกสมุดรายวัน (journal_entries/journal_lines) ตอนกด "ปิดยอดวันนี้" — ลบของเดิมวันนั้นแล้วเขียนใหม่ เพื่อให้ตรงกับหน้าจอเสมอ */
 async function saveJournalsDB(date, journals) {
-  /* ลบเฉพาะใบสำคัญของ "รายวัน" — ใบค่าแรงรายเดือน (payroll) ที่ลงวันสุดท้ายของเดือนต้องไม่ถูกลบทิ้ง */
+  /* ลบเฉพาะใบสำคัญของ "รายวัน" — ใบที่ลงวันเดียวกันแต่มาจากหน้าอื่นต้องไม่ถูกลบทิ้ง:
+     ค่าแรงรายเดือน (payroll) และค่าใช้จ่ายรายเดือน (monthly_expense) ลงวันสุดท้ายของเดือน,
+     ใบจ่ายชำระเจ้าหนี้ (ap_payment) บันทึกจากหน้าเจ้าหนี้ */
   await supabase.from("journal_entries").delete()
-    .eq("entity", ENTITY).eq("entry_date", date).neq("source_type", "payroll");
+    .eq("entity", ENTITY).eq("entry_date", date).not("source_type", "in", NON_DAY_SOURCES);
   for (const j of journals) {
     const sourceType = j.no.endsWith("-A") ? "sales"
       : j.no.endsWith("-F") ? "staff_advance"
@@ -977,6 +1113,334 @@ function LineChart({ rows, series, height = 180, formatValue }) {
   );
 }
 
+/* ── ส่วนบนสุดของแดชบอร์ด: สรุปรายเดือน (การ์ด 3 ใบ + กราฟเทียบเดือนที่แล้ว) ──
+   ใช้ตัวเลขชุดเดียวกับ "แนวโน้มรายเดือน" (fetchMonthlySummary จาก journal_lines) ตัวเลขจึงตรงกันทุกจุด
+   รายรับ = ยอดขายเต็ม (Grab ก่อนหักค่าคอม) · ค่าใช้จ่าย = ทุกกลุ่มรวมค่าคอม Grab · คงเหลือ = กำไรจากการดำเนินงาน */
+const CMP_CUR = "#2A5A78";   // เดือนที่เลือก
+const CMP_PREV = "#A9C0CF";  // เดือนก่อนหน้า (สีเดียวกันแต่อ่อนกว่า)
+
+function MonthSummary() {
+  const today = todayISO();
+  const [period, setPeriod] = useState(monthOf(today));
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [autoMoved, setAutoMoved] = useState(false); // ต้นเดือนที่ยังไม่มีข้อมูล → ข้ามไปโชว์เดือนที่แล้วให้ก่อน (ครั้งเดียว)
+  const triedAutoRef = useRef(false);
+  const prevPeriod = shiftMonth(period, -1);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true); setErr("");
+      try {
+        const [cur, prev] = await Promise.all([fetchMonthlySummary(period), fetchMonthlySummary(prevPeriod)]);
+        const empty = Math.abs(cur.revenue) < 0.005 && Object.values(cur.groups).every((v) => Math.abs(v) < 0.005);
+        if (alive && empty && !triedAutoRef.current && period === monthOf(todayISO())) {
+          triedAutoRef.current = true;
+          setAutoMoved(true);
+          setPeriod(prevPeriod);
+          return;
+        }
+        triedAutoRef.current = true;
+        if (alive) setData({ cur, prev });
+      } catch (e) {
+        if (alive) setErr(String((e && e.message) || e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [period]); // eslint-disable-line
+
+  const totalExp = (s) => r2(COST_GROUP_ORDER.reduce((sum, g) => sum + (s.groups[g] || 0), 0));
+  const isCurMonth = period === monthOf(today);
+
+  /* goodWhenUp: รายรับ/กำไรขึ้น = ดี (เขียว) · ค่าใช้จ่ายขึ้น = ไม่ดี (แดง) */
+  const Delta = ({ cur, prev, goodWhenUp }) => {
+    const diff = r2(cur - prev);
+    if (Math.abs(diff) < 0.005) return <span className="kdelta">เท่ากับ {thMonth(prevPeriod)}</span>;
+    const up = diff > 0;
+    const good = up === goodWhenUp;
+    const pctTxt = prev > 0 ? ` (${up ? "+" : "−"}${Math.abs((diff / prev) * 100).toFixed(1)}%)` : "";
+    return (
+      <span className="kdelta" style={{ color: good ? "var(--ok)" : "var(--margin)" }}>
+        {up ? "▲" : "▼"} {money(Math.abs(diff))}{pctTxt} จาก {thMonth(prevPeriod)}
+      </span>
+    );
+  };
+
+  let body;
+  if (err) body = <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {err}</p>;
+  else if (loading || !data) body = <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>;
+  else if (Math.abs(data.cur.revenue) < 0.005 && Object.values(data.cur.groups).every((v) => Math.abs(v) < 0.005)) {
+    body = (
+      <p style={{ fontSize: 13, color: "var(--soft)", padding: "8px 0" }}>
+        {thMonth(period)} ยังไม่มีข้อมูลที่ปิดยอดแล้ว — ตัวเลขจะขึ้นหลังกด "ปิดยอดวันนี้" ในหน้าบันทึกรายวัน
+      </p>
+    );
+  }
+  else {
+    const c = data.cur, p = data.prev;
+    const cExp = totalExp(c), pExp = totalExp(p);
+    const cProfit = r2(c.revenue - cExp), pProfit = r2(p.revenue - pExp);
+    const bars = [
+      { key: "rev", label: "รายรับ (ยอดขาย)", cur: c.revenue, prev: p.revenue },
+      ...COST_GROUP_ORDER.map((g) => ({ key: g, label: COST_GROUP_LABEL[g], cur: c.groups[g] || 0, prev: p.groups[g] || 0 })),
+    ].filter((b) => Math.abs(b.cur) > 0.005 || Math.abs(b.prev) > 0.005);
+    const max = Math.max(1, ...bars.flatMap((b) => [b.cur, b.prev]));
+    const w = (v) => `${Math.max(0, (v / max) * 100)}%`;
+    body = (
+      <>
+        <div className="kpis">
+          <div className="kpi">
+            <span className="kk">รายรับ</span>
+            <span className="kn">{money(c.revenue)}</span>
+            <Delta cur={c.revenue} prev={p.revenue} goodWhenUp />
+          </div>
+          <div className="kpi">
+            <span className="kk">ค่าใช้จ่าย</span>
+            <span className="kn">{money(cExp)}</span>
+            <Delta cur={cExp} prev={pExp} goodWhenUp={false} />
+          </div>
+          <div className="kpi">
+            <span className="kk">คงเหลือ (กำไร)</span>
+            <span className="kn" style={{ color: cProfit >= 0 ? "var(--ok)" : "var(--margin)" }}>
+              {cProfit < 0 ? "−" : ""}{money(Math.abs(cProfit))}
+            </span>
+            <Delta cur={cProfit} prev={pProfit} goodWhenUp />
+          </div>
+        </div>
+
+        <p className="eyebrow" style={{ marginTop: 16 }}><span>เทียบ {thMonth(period)} กับ {thMonth(prevPeriod)} — แยกตามกลุ่ม</span></p>
+        <div style={{ display: "flex", gap: 14, fontSize: 11.5, marginBottom: 8 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span className="mcsw" style={{ background: CMP_CUR }} />{thMonth(period)}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span className="mcsw" style={{ background: CMP_PREV }} />{thMonth(prevPeriod)}</span>
+        </div>
+        {bars.length === 0 ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>ยังไม่มีข้อมูลในสองเดือนนี้</p>
+        ) : bars.map((b) => (
+          <div className={`mcrow${b.key === "rev" ? " mcrev" : ""}`} key={b.key}>
+            <span className="mclabel">{b.label}</span>
+            <div className="mcbars">
+              <div className="mcline" title={`${thMonth(period)}: ${money(b.cur)} บาท`}>
+                <div className="mcbar" style={{ width: w(b.cur), background: CMP_CUR }} />
+                <span className="mcval">{money(b.cur)}</span>
+              </div>
+              <div className="mcline" title={`${thMonth(prevPeriod)}: ${money(b.prev)} บาท`}>
+                <div className="mcbar" style={{ width: w(b.prev), background: CMP_PREV }} />
+                <span className="mcval soft">{money(b.prev)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+        <p className="foot">
+          ดึงสดจากสมุดบัญชี (เฉพาะวันที่กด "ปิดยอด" แล้ว และค่าใช้จ่ายรายเดือน/ค่าแรงที่ปิดยอดแล้ว) ·
+          คงเหลือ = รายรับ − ค่าใช้จ่าย (ยังไม่หัก VAT และภาษีเงินได้)
+          {isCurMonth && <> · <b>{thMonth(period)} ยังไม่จบเดือน</b> (ข้อมูลถึงวันที่ {Number(today.slice(8, 10))}) เทียบกับ {thMonth(prevPeriod)} ทั้งเดือน — ค่าเช่า/ไฟ/น้ำ มักยังไม่ได้ลงจนกว่าจะปิดยอดสิ้นเดือน</>}
+        </p>
+      </>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+        <p className="eyebrow" style={{ margin: 0 }}><span>สรุปรายเดือน</span></p>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button className="navb" onClick={() => setPeriod(shiftMonth(period, -1))} aria-label="เดือนก่อนหน้า">‹ {thMonth(prevPeriod)}</button>
+          <span style={{ fontWeight: 600, fontSize: 14, minWidth: 82, textAlign: "center" }}>{thMonth(period)}</span>
+          <button className="navb" disabled={isCurMonth} style={isCurMonth ? { opacity: 0.35, cursor: "default" } : undefined}
+            onClick={() => !isCurMonth && setPeriod(shiftMonth(period, 1))} aria-label="เดือนถัดไป">{thMonth(shiftMonth(period, 1))} ›</button>
+        </div>
+      </div>
+      {autoMoved && period === shiftMonth(monthOf(today), -1) && (
+        <p style={{ fontSize: 12, color: "var(--wait)", margin: "0 0 10px" }}>
+          {thMonth(monthOf(today))} ยังไม่มีข้อมูลที่ปิดยอดแล้ว — แสดง {thMonth(period)} ให้ก่อน (กด › เพื่อดูเดือนนี้)
+        </p>
+      )}
+      {body}
+    </div>
+  );
+}
+
+/* ── หน้าเจ้าหนี้รายร้าน ── */
+function Payables() {
+  const today = todayISO();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [openKey, setOpenKey] = useState(null);   // แถวที่กดดูรายละเอียด
+  const [payKey, setPayKey] = useState(null);     // แถวที่กำลังกรอกบันทึกจ่าย
+  const [form, setForm] = useState({ date: today, amount: "", method: "cash", note: "" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [showPaid, setShowPaid] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr("");
+    try { setData(await fetchPayables()); }
+    catch (e) { setErr(String((e && e.message) || e)); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const startPay = (r) => {
+    setPayKey(r.key); setOpenKey(r.key); setMsg("");
+    setForm({ date: today, amount: s2(r.balance), method: "cash", note: "" });
+  };
+
+  const submitPay = async (r) => {
+    const amt = r2(A(form.amount));
+    if (!(amt > 0)) { setMsg("ใส่ยอดจ่ายก่อน"); return; }
+    if (amt > r.balance + 0.005) { setMsg(`ยอดจ่ายเกินยอดค้าง (${money(r.balance)})`); return; }
+    if (!form.date) { setMsg("เลือกวันที่จ่ายก่อน"); return; }
+    setBusy(true); setMsg("");
+    try {
+      const no = await addVendorPaymentDB({ date: form.date, vendor: r.vendor, account: r.account, amount: amt, method: form.method, note: form.note.trim() });
+      setPayKey(null);
+      setMsg(`✓ บันทึกจ่าย ${r.vendor} ${money(amt)} บาท แล้ว (ใบสำคัญ ${no})`);
+      await load();
+    } catch (e) {
+      setMsg("บันทึกไม่สำเร็จ: " + String((e && e.message) || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removePay = async (p) => {
+    if (!window.confirm(`ลบรายการจ่าย ${p.vendor_name} ${money(A(p.amount))} บาท (${p.voucher_no || ""})? ใบสำคัญที่ผูกไว้จะถูกลบด้วย และยอดค้างจะกลับมาเท่าเดิม`)) return;
+    setBusy(true); setMsg("");
+    try { await deleteVendorPaymentDB(p); setMsg("✓ ลบรายการจ่ายแล้ว"); await load(); }
+    catch (e) { setMsg("ลบไม่สำเร็จ: " + String((e && e.message) || e)); }
+    finally { setBusy(false); }
+  };
+
+  if (loading && !data) return <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดยอดเจ้าหนี้…</p></div>;
+  if (err) return <div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div>;
+
+  const owing = data.rows.filter((r) => r.balance > 0.005);
+  const settled = data.rows.filter((r) => r.balance <= 0.005);
+  const total = r2(owing.reduce((s, r) => s + r.balance, 0));
+  const ledgerDiff = r2(total - data.ledgerBalance);
+  const daysAgo = (d) => Math.round((new Date(today + "T00:00:00") - new Date(d + "T00:00:00")) / 86400000);
+
+  /* ฟังก์ชันวาดแถว (ไม่ใช่คอมโพเนนต์ย่อย — กันช่องกรอกหลุดโฟกัสตอนพิมพ์) */
+  const renderRow = (r) => {
+    const isOpen = openKey === r.key;
+    const paying = payKey === r.key;
+    return (
+      <div className="aprow-wrap" key={r.key}>
+        <div className="aprow">
+          <button className="aplink" onClick={() => setOpenKey(isOpen ? null : r.key)}>
+            {isOpen ? "▾" : "▸"} {r.vendor}
+            {r.account === "2100-LS" && <span className="aptag">ร้านในเครือ</span>}
+          </button>
+          <span className="apamt">{money(r.balance)}</span>
+          <span className="apold">
+            {r.oldest ? <>ตั้งแต่ {thDate(r.oldest)}<em> · {daysAgo(r.oldest)} วัน</em></> : "จ่ายครบแล้ว"}
+          </span>
+          <span>
+            {r.balance > 0.005 && !paying && <button className="navb" onClick={() => startPay(r)}>บันทึกจ่าย</button>}
+          </span>
+        </div>
+
+        {paying && (
+          <div className="apform">
+            <label>วันที่จ่าย<input className="dateinput" type="date" value={form.date} max={today}
+              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></label>
+            <label>ยอดจ่าย (บาท)<input inputMode="decimal" value={form.amount}
+              onChange={(e) => setForm((f) => ({ ...f, amount: numStr(e.target.value) }))} /></label>
+            <label>วิธีจ่าย
+              <select value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>
+                <option value="cash">เงินสด (ออกจากลิ้นชัก)</option>
+                <option value="transfer">โอน</option>
+              </select>
+            </label>
+            <label className="apnote">หมายเหตุ (ถ้ามี)<input value={form.note} placeholder="เช่น จ่ายรอบสิ้นเดือน"
+              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} /></label>
+            <div className="apbtns">
+              <button className="navb active" disabled={busy} onClick={() => submitPay(r)}>{busy ? "กำลังบันทึก…" : "ยืนยันจ่าย"}</button>
+              <button className="navb" disabled={busy} onClick={() => setPayKey(null)}>ยกเลิก</button>
+            </div>
+            {form.method === "cash" && (
+              <p className="aphint">จ่ายเงินสด → ยอด "ควรมีในลิ้นชัก" ของวันที่ {form.date ? thDate(form.date) : "—"} จะลดลงตามยอดนี้ (ถ้าวันนั้นนับเงินไปแล้ว ให้กลับไปเช็คยอดนับเงินอีกครั้ง)</p>
+            )}
+          </div>
+        )}
+
+        {isOpen && (
+          <div className="apdetail">
+            <div className="apsub">บิลที่ยังค้าง ({r.unpaidBills.length} วัน)</div>
+            <div className="apscroll">
+            {r.unpaidBills.length === 0 ? <div className="apline soft">— ไม่มี —</div> : r.unpaidBills.map((b) => (
+              <div className="apline" key={b.date}>
+                <span>{thDate(b.date)}</span>
+                <span>ซื้อ {money(b.amount)}</span>
+                <span style={{ fontWeight: 600 }}>{b.unpaid < b.amount - 0.005 ? `ค้างอีก ${money(b.unpaid)}` : `ค้าง ${money(b.unpaid)}`}</span>
+              </div>
+            ))}
+            </div>
+            <div className="apsub" style={{ marginTop: 10 }}>ประวัติการจ่าย ({r.payments.length} ครั้ง · รวม {money(r.paid)})</div>
+            {r.payments.length === 0 ? <div className="apline soft">— ยังไม่เคยจ่าย —</div> : [...r.payments].reverse().map((p) => (
+              <div className="apline" key={p.id}>
+                <span>{thDate(p.payment_date)} <em className="soft">{p.voucher_no}</em></span>
+                <span>{p.payment_method === "cash" ? "เงินสด" : "โอน"}{p.note ? ` · ${p.note}` : ""}</span>
+                <span style={{ fontWeight: 600 }}>{money(A(p.amount))}
+                  <button className="apdel" disabled={busy} onClick={() => removePay(p)} title="ลบรายการจ่ายนี้ (กรณีบันทึกผิด)">ลบ</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="card">
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <p className="eyebrow" style={{ margin: 0 }}><span>ยอดค้างเจ้าหนี้รายร้าน</span></p>
+        <button className="navb" onClick={load} disabled={loading}>{loading ? "กำลังโหลด…" : "โหลดใหม่"}</button>
+      </div>
+      <div className="aptotal">
+        <span>ยอดค้างรวม</span>
+        <span className="n">{money(total)}</span>
+        <span className="soft">{owing.length} ร้าน</span>
+      </div>
+      {msg && (
+        <div className={`alertbar ${msg.startsWith("✓") ? "info" : "red"}`} style={{ cursor: "pointer" }} onClick={() => setMsg("")}>{msg}</div>
+      )}
+
+      <div className="aprow aphead"><span>ร้าน</span><span className="apamt">ค้างจ่าย</span><span>ค้างนานสุด</span><span /></div>
+      {owing.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--soft)", padding: "10px 0" }}>ไม่มียอดค้างจ่าย 🎉</p>
+      ) : owing.map(renderRow)}
+
+      {settled.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button className="aplink soft" onClick={() => setShowPaid((v) => !v)}>
+            {showPaid ? "▾" : "▸"} ร้านที่จ่ายครบแล้ว ({settled.length})
+          </button>
+          {showPaid && settled.map(renderRow)}
+        </div>
+      )}
+
+      {Math.abs(ledgerDiff) > 1 && (
+        <div className="alertbar amber" style={{ marginTop: 14, fontWeight: 400 }}>
+          ⚠ ยอดรวมรายร้าน ({money(total)}) ต่างจากยอดในสมุดบัญชี ({money(data.ledgerBalance)}) อยู่ {money(Math.abs(ledgerDiff))} บาท —
+          ส่วนใหญ่เกิดจากมีวันที่ซื้อเชื่อ/รับของจากร้านก๋วยเตี๋ยว แต่ยังไม่ได้กด "ปิดยอดวันนี้" (สมุดบัญชีจะนับเมื่อปิดยอดแล้วเท่านั้น)
+        </div>
+      )}
+      <p className="foot">
+        ยอดค้าง = ยอดซื้อที่วิธีจ่ายเป็น "เชื่อ" (2010-LS) หรือ "ก๋วยเตี๋ยว" (2100-LS) ทุกวัน − ยอดที่บันทึกจ่ายแล้ว ·
+        การจ่ายตัดบิลเก่าสุดก่อนเสมอ · กด "บันทึกจ่าย" แล้วระบบออกใบสำคัญ <b>PV-ปปดดวว-ลำดับ</b> ให้เอง
+        (เดบิต เจ้าหนี้ · เครดิต เงินสด 1010 หรือ ธนาคาร 1020) · ถ้าบันทึกผิด กดชื่อร้าน → ลบรายการจ่ายนั้นได้
+      </p>
+    </div>
+  );
+}
+
 /* ── หน้าแดชบอร์ด ── */
 function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -1073,8 +1537,8 @@ function Dashboard() {
     }
   };
 
-  if (loading) return <div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลแดชบอร์ด…</p></div>;
-  if (err) return <div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div>;
+  if (loading) return <><MonthSummary /><div className="card"><p style={{ fontSize: 13, color: "var(--soft)", margin: 0 }}>กำลังโหลดข้อมูลแดชบอร์ด…</p></div></>;
+  if (err) return <><MonthSummary /><div className="card"><p style={{ fontSize: 13, color: "var(--margin)", margin: 0 }}>โหลดข้อมูลไม่สำเร็จ: {err}</p></div></>;
 
   const rangeDays = daysBetween(effFrom, effTo);
   const rangeLabel = rangeMode === "30d" ? "30 วันล่าสุด" : rangeMode === "month" ? thMonth(rangeMonth || monthOf(today)) : `${thDate(effFrom)} – ${thDate(effTo)}`;
@@ -1157,6 +1621,7 @@ function Dashboard() {
 
   return (
     <>
+      <MonthSummary />
       <div className="card">
         <p className="eyebrow"><span>ยอดขาย — {rangeLabel}</span></p>
         {RangePicker}
@@ -1382,7 +1847,8 @@ function LaabEntryApp({ userEmail }) {
   const [att, setAttState] = useState({});        // employee_id → ยอดค่าแรงวันนี้ (string)
   const [advToday, setAdvToday] = useState([]);   // เงินเบิกที่เบิกในวันที่เลือก
   const [openAdv, setOpenAdv] = useState([]);     // เงินเบิกที่ยังไม่ได้หักคืน (ทุกวัน)
-  const [view, setView] = useState("daily"); // "daily" | "dashboard"
+  const [apToday, setApToday] = useState([]);     // จ่ายชำระเจ้าหนี้ในวันที่เลือก (บันทึกจากหน้าเจ้าหนี้)
+  const [view, setView] = useState("daily"); // "daily" | "dashboard" | "payables"
   const [showStaff, setShowStaff] = useState(false);
   const [showPayroll, setShowPayroll] = useState(false);
   const [payPeriod, setPayPeriod] = useState(monthOf(todayISO()));
@@ -1424,10 +1890,11 @@ function LaabEntryApp({ userEmail }) {
   const loadDay = useCallback(async (d, cat) => {
     setDayLoading(true);
     try {
-      const [dd, po, pc, at, ad] = await Promise.all([
+      const [dd, po, pc, at, ad, ap] = await Promise.all([
         fetchDay(d), fetchPrevOf(d, cat), fetchPrevCash(d), fetchAttendance(d), fetchAdvancesOnDate(d),
+        fetchApPaymentsOnDate(d),
       ]);
-      setDayState(dd); setPrevOf(po); setPrevCash(pc); setAttState(at); setAdvToday(ad);
+      setDayState(dd); setPrevOf(po); setPrevCash(pc); setAttState(at); setAdvToday(ad); setApToday(ap);
       setRemoteChanged(false);
     } catch (e) {
       setSaveError("โหลดข้อมูลวันที่ " + d + " ไม่สำเร็จ: " + String((e && e.message) || e));
@@ -1447,6 +1914,7 @@ function LaabEntryApp({ userEmail }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_counts", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
       .on("postgres_changes", { event: "*", schema: "public", table: "staff_attendance", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
       .on("postgres_changes", { event: "*", schema: "public", table: "staff_advances", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "vendor_payments", filter: `entity=eq.${ENTITY}` }, () => setRemoteChanged(true))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [bootReady]);
@@ -1911,7 +2379,9 @@ function LaabEntryApp({ userEmail }) {
   const food = byGrp("food"), bevT = byGrp("bev"), labor = r2(byGrp("labor") + wageToday), ops = byGrp("ops");
   const prime = r2(food + bevT + labor);
   const nsTotal = r2(active.filter((l) => payOf(l) === "ns").reduce((s, l) => s + A(l.amt), 0));
-  const cashPaid = r2(active.filter((l) => PAY[payOf(l)].out).reduce((s, l) => s + A(l.amt), 0) + wageToday + advCash);
+  /* จ่ายเจ้าหนี้ด้วยเงินสดวันนี้ (บันทึกที่หน้าเจ้าหนี้) — เงินออกจากลิ้นชักจริง แต่ไม่ใช่ค่าใช้จ่ายใหม่ */
+  const apCash = r2(apToday.filter((p) => p.payment_method === "cash").reduce((s, p) => s + A(p.amount), 0));
+  const cashPaid = r2(active.filter((l) => PAY[payOf(l)].out).reduce((s, l) => s + A(l.amt), 0) + wageToday + advCash + apCash);
   const profit = r2(totalIn - totalOut - grabComm);
   const cashShould = r2(A(cashOpen) + A(rev.cash) - cashPaid);
   const cashDiff = has(cashCount) ? r2(A(cashCount) - cashShould) : null;
@@ -1996,6 +2466,10 @@ function LaabEntryApp({ userEmail }) {
       L.push(T([d, "เบิกล่วงหน้า", "ลูกหนี้พนักงาน", (e && e.name) || "", "",
                 a.payment_method === "cash" ? "จ่ายสด" : "โอน", "", "", "", String(r2(A(a.amount))), "1032-LS"]));
     });
+    apToday.forEach((p) => {
+      L.push(T([d, "จ่ายเจ้าหนี้", p.voucher_no || "", "", p.vendor_name, p.payment_method === "cash" ? "จ่ายสด" : "โอน",
+                "", "", "", String(r2(A(p.amount))), ""]));
+    });
     L.push("");
     L.push(`รวมรับ\t${r2(totalIn)}`);
     L.push(`รวมจ่าย\t${r2(totalOut)}`);
@@ -2020,7 +2494,7 @@ function LaabEntryApp({ userEmail }) {
     });
     L.push(T(["", "", "รวมทั้งสิ้น", String(sumDr), String(sumCr)]));
     return L.join("\n");
-  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, vendors, att, employees, advToday, empById]);
+  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, vendors, att, employees, advToday, empById, apToday]);
 
   const doCopy = async () => {
     try {
@@ -2436,6 +2910,58 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .alertbar.red{border:1px solid var(--margin);background:#FBEEEC;color:var(--margin)}
 .alertbar.amber{border:1px solid var(--wait);background:#FFF8EC;color:var(--wait)}
 .alertbar.info{border:1px solid var(--dr);background:#F4F9FC;color:var(--dr);font-weight:400}
+/* ── สรุปรายเดือน (แดชบอร์ด) ── */
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kpi{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
+.kpi .kk{font-size:11.5px;color:var(--soft)}
+.kpi .kn{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;color:var(--ink)}
+.kdelta{font-size:11.5px;color:var(--soft)}
+.mcsw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.mcrow{display:grid;grid-template-columns:minmax(0,190px) minmax(0,1fr);gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--field)}
+.mcrow.mcrev{border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:3px}
+.mcrow.mcrev .mclabel{font-weight:600}
+.mclabel{font-size:12px;line-height:1.35}
+.mcbars{display:flex;flex-direction:column;gap:2px}
+.mcline{display:flex;align-items:center;gap:6px;min-height:12px}
+.mcbar{height:10px;border-radius:0 4px 4px 0;min-width:2px}
+.mcval{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink);white-space:nowrap}
+.mcval.soft{color:var(--soft)}
+/* ── หน้าเจ้าหนี้ ── */
+.aptotal{display:flex;align-items:baseline;gap:12px;margin:12px 0 14px;padding:10px 12px;background:var(--field);border-radius:4px;font-size:13px}
+.aptotal .n{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600}
+.soft{color:var(--soft)}
+.aprow{display:grid;grid-template-columns:minmax(0,1.4fr) 110px minmax(0,1.2fr) 96px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--field);font-size:13px}
+.aprow.aphead{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600;border-bottom:1px solid var(--rule)}
+.aprow .apamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600}
+.aprow.aphead .apamt{font-family:inherit}
+.apold{font-size:12px}
+.apold em{font-style:normal;color:var(--soft)}
+.aplink{background:none;border:none;padding:0;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:left}
+.aplink.soft{color:var(--soft);font-size:12px}
+.aptag{margin-left:6px;font-size:10px;padding:1px 5px;border-radius:3px;background:#F2ECF5;color:var(--ns)}
+.apform{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;padding:10px 12px;margin:4px 0 8px;background:#F4F9FC;border:1px solid var(--dr);border-radius:4px}
+.apform label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--soft)}
+.apform input,.apform select{font-family:inherit;font-size:14px;padding:6px 7px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+.apform .apnote{grid-column:1/-1}
+.apbtns{grid-column:1/-1;display:flex;gap:8px}
+.aphint{grid-column:1/-1;margin:0;font-size:11.5px;color:var(--wait)}
+.apdetail{padding:6px 0 10px 18px;border-bottom:1px solid var(--field)}
+.apscroll{max-height:280px;overflow-y:auto}
+.apsub{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin-bottom:3px}
+.apline{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;font-size:12.5px;padding:3px 0}
+.apline>span:last-child{text-align:right}
+.apline em{font-style:normal;font-size:11px;margin-left:4px}
+.apdel{margin-left:8px;font-size:11px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer}
+@media (max-width:640px){
+ .kpis{grid-template-columns:1fr}
+ .mcrow{grid-template-columns:1fr}
+ .aprow{grid-template-columns:minmax(0,1fr) 96px;row-gap:4px}
+ .aprow .apold{grid-column:1/2}
+ .aprow.aphead>span:nth-child(3),.aprow.aphead>span:nth-child(4){display:none}
+ .apform{grid-template-columns:1fr}
+ .apline{grid-template-columns:1fr 1fr}
+ .apline>span:nth-child(2){display:none}
+}
 .cmpbox{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dr);border-radius:3px;background:#F4F9FC}
 .cmpbox h4{margin:0 0 7px;font-size:12.5px;font-weight:700}
 .cmprow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
@@ -2600,10 +3126,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <div className="dright">
           <span className="userchip">{userEmail}</span>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
-          <button className={`navb${view === "dashboard" ? " active" : ""}`}
-            onClick={() => setView((v) => (v === "dashboard" ? "daily" : "dashboard"))}>
-            {view === "dashboard" ? "← กลับไปบันทึกประจำวัน" : "แดชบอร์ด"}
-          </button>
+          {view !== "daily" && (
+            <button className="navb" onClick={() => { setView("daily"); loadDay(date, catalog); }}>← กลับไปบันทึกประจำวัน</button>
+          )}
+          <button className={`navb${view === "dashboard" ? " active" : ""}`} onClick={() => setView("dashboard")}>แดชบอร์ด</button>
+          <button className={`navb${view === "payables" ? " active" : ""}`} onClick={() => setView("payables")}>เจ้าหนี้</button>
           {view === "daily" && (
             <React.Fragment>
               <button className="navb" onClick={() => shiftDay(-1)} aria-label="วันก่อนหน้า">‹</button>
@@ -3185,6 +3712,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <div className="cashline"><span>เงินสดยกมา</span><span className="v">{money(A(cashOpen))}</span></div>
               <div className="cashline"><span>+ ขายเงินสดวันนี้</span><span className="v">{money(A(rev.cash))}</span></div>
               <div className="cashline"><span>− จ่ายเงินสดวันนี้</span><span className="v">{money(cashPaid)}</span></div>
+              {apCash > 0 && (
+                <div className="cashline" style={{ fontSize: 12, color: "var(--soft)" }}>
+                  <span>&nbsp;&nbsp;(รวมจ่ายเจ้าหนี้เงินสด {apToday.filter((p) => p.payment_method === "cash").map((p) => p.vendor_name).join(", ")})</span>
+                  <span className="v">{money(apCash)}</span>
+                </div>
+              )}
               <div className="cashsum"><span>ควรมีในลิ้นชัก</span><span className="v">{money(cashShould)}</span></div>
             </div>
             {cashDiff !== null && (
@@ -3284,6 +3817,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       </React.Fragment>
       )}
       {view === "dashboard" && <Dashboard />}
+      {view === "payables" && <Payables />}
     </div>
   );
 }
