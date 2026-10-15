@@ -186,8 +186,10 @@ const REV_CHANNEL_APP = { cash: "cash", transfer: "transfer", grab: "grab", thai
 
 async function fetchCatalog() {
   const { data, error } = await supabase.from("items")
-    .select("id,account_code,name,unit,default_vendor_name,is_active")
-    .eq("entity", ENTITY).order("name");
+    .select("id,account_code,name,unit,default_vendor_name,is_active,sort_order")
+    .eq("entity", ENTITY)
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("name");
   if (error) throw error;
   return data.map((r) => ({
     id: r.id,
@@ -196,6 +198,7 @@ async function fetchCatalog() {
     unit: r.unit,
     vendor: r.default_vendor_name || "—",
     off: !r.is_active,
+    ord: r.sort_order,
   }));
 }
 
@@ -406,9 +409,18 @@ async function upsertItemDB(it) {
     if (error) throw error;
     return it.id;
   }
-  const { data, error } = await supabase.from("items").insert(payload).select("id").single();
+  const { data, error } = await supabase.from("items")
+    .insert({ ...payload, sort_order: it.ord == null ? null : it.ord }).select("id").single();
   if (error) throw error;
   return data.id;
+}
+
+/* บันทึกลำดับรายการในหมวด — pairs = [[id, ลำดับที่], ...] */
+async function saveItemOrderDB(pairs) {
+  const results = await Promise.all(pairs.map(([id, o]) =>
+    supabase.from("items").update({ sort_order: o }).eq("id", id).eq("entity", ENTITY)));
+  const bad = results.find((r) => r.error);
+  if (bad) throw bad.error;
 }
 
 async function deleteItemDB(id) {
@@ -2154,6 +2166,11 @@ function LaabEntryApp({ userEmail }) {
   const [showDays, setShowDays] = useState(false);
   const [daysSummary, setDaysSummary] = useState(null);
   const [editCat, setEditCat] = useState(null);
+  const [dragId, setDragId] = useState(null);   // รายการที่กำลังลากจัดลำดับ
+  const eRowRef = useRef({});                   // DOM ของแถวในโหมดแก้ไข (ใช้คำนวณตำแหน่งตอนลาก)
+  const dragRef = useRef(null);
+
+  useEffect(() => () => { const d = dragRef.current; if (d) cancelAnimationFrame(d.raf); }, []);
 
   const rowRef = useRef({});
   const taRef = useRef(null);
@@ -2289,8 +2306,10 @@ function LaabEntryApp({ userEmail }) {
     setNn(""); setNu(""); setNv(""); dirty();
     /* รอรหัสจริงจาก Supabase ก่อนค่อยเอาเข้าหน้าจอ — กันไม่ให้ใช้รหัสชั่วคราวไปกรอกจำนวน/ราคาแล้วบันทึกไม่ได้ */
     track((async () => {
-      const realId = await upsertItemDB({ cat, name, unit, vendor, off: false });
-      const it = { id: realId, name, cat, unit, vendor, off: false };
+      const ords = catalog.filter((x) => x.cat === cat && x.ord != null).map((x) => x.ord);
+      const ord = ords.length ? Math.max(...ords) + 1 : null;
+      const realId = await upsertItemDB({ cat, name, unit, vendor, off: false, ord });
+      const it = { id: realId, name, cat, unit, vendor, off: false, ord };
       setCatalog((p) => [...p, it]);
       rowsDataRef.current = { ...rowsDataRef.current, [realId]: blankRow(vendor) };
       setRows(() => rowsDataRef.current);
@@ -2308,6 +2327,83 @@ function LaabEntryApp({ userEmail }) {
       // (ไม่ยุ่งกับประวัติการซื้อจริงในอดีต แค่ปรับค่าที่ใช้เดาในหน้าจอตอนนี้)
       setPrevOf((p) => ({ ...p, [id]: { ...(p[id] || {}), vendor: patch.vendor } }));
     }
+  };
+
+  /* ── ลากจัดลำดับรายการในหมวดเดียวกัน (เมาส์/นิ้ว/ลูกศรบนคีย์บอร์ด) ── */
+  const applyOrder = (cat, ids) => setCatalog((p) => {
+    const n = p.filter((x) => x.cat === cat).length;
+    if (n !== ids.length) return p;
+    const byId = new Map(p.map((x) => [x.id, x]));
+    let k = 0;
+    return p.map((x) => {
+      if (x.cat !== cat) return x;
+      const it = byId.get(ids[k]); k += 1;
+      return it ? { ...it, ord: k } : x;
+    });
+  });
+
+  const dragTick = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    const rectOf = (id) => { const el = eRowRef.current[id]; return el ? el.getBoundingClientRect() : null; };
+    const i = d.ids.indexOf(d.id);
+    let j = -1;
+    if (i > 0) { const r = rectOf(d.ids[i - 1]); if (r && d.y < r.top + r.height / 2) j = i - 1; }
+    if (j < 0 && i < d.ids.length - 1) { const r = rectOf(d.ids[i + 1]); if (r && d.y > r.top + r.height / 2) j = i + 1; }
+    if (j >= 0) {
+      const t = d.ids[i]; d.ids[i] = d.ids[j]; d.ids[j] = t;
+      applyOrder(d.cat, d.ids.slice());
+    }
+  };
+
+  const gripDown = (ev, it) => {
+    if (ev.button != null && ev.button !== 0) return;
+    ev.preventDefault();
+    try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch (e) { /* ไม่เป็นไร */ }
+    const ids = catalog.filter((x) => x.cat === it.cat).map((x) => x.id);
+    const d = { id: it.id, cat: it.cat, ids, start: ids.slice(), y: ev.clientY, raf: 0 };
+    dragRef.current = d;
+    setDragId(it.id);
+    const loop = () => {
+      if (dragRef.current !== d) return;
+      const h = window.innerHeight || 800;
+      if (d.y < 70 && window.scrollY > 0) window.scrollBy(0, -Math.max(4, (70 - d.y) / 4));      // ลากชิดขอบบน → เลื่อนจอขึ้น
+      else if (d.y > h - 70) window.scrollBy(0, Math.max(4, (d.y - (h - 70)) / 4));              // ลากชิดขอบล่าง → เลื่อนจอลง
+      dragTick();
+      d.raf = requestAnimationFrame(loop);
+    };
+    d.raf = requestAnimationFrame(loop);
+  };
+
+  const gripMove = (ev) => {
+    const d = dragRef.current;
+    if (!d) return;
+    d.y = ev.clientY;
+    dragTick();
+  };
+
+  const gripEnd = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    cancelAnimationFrame(d.raf);
+    dragRef.current = null;
+    setDragId(null);
+    if (d.ids.join("|") === d.start.join("|")) return;   // ไม่ได้ย้ายจริง ไม่ต้องบันทึก
+    dirty();
+    track(saveItemOrderDB(d.ids.map((id, i) => [id, i + 1])));
+  };
+
+  const gripKey = (ev, it) => {
+    if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+    ev.preventDefault();
+    const ids = catalog.filter((x) => x.cat === it.cat).map((x) => x.id);
+    const i = ids.indexOf(it.id);
+    const j = ev.key === "ArrowUp" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    const t = ids[i]; ids[i] = ids[j]; ids[j] = t;
+    applyOrder(it.cat, ids.slice());
+    dirty();
+    track(saveItemOrderDB(ids.map((id, k) => [id, k + 1])));
   };
 
   const deleteItem = (it) => {
@@ -2618,7 +2714,21 @@ function LaabEntryApp({ userEmail }) {
 
   /* ═══════════ แถวรายการ ═══════════ */
   const renderEdit = (it) => (
-    <div className={`erow${it.off ? " off" : ""}`} key={it.id}>
+    <div className={`erow${it.off ? " off" : ""}${dragId === it.id ? " drag" : ""}`} key={it.id}
+      ref={(el) => { eRowRef.current[it.id] = el; }}>
+      <button type="button" className="e-grip" title="ลากเพื่อจัดลำดับ (หรือกดลูกศรขึ้น/ลงบนคีย์บอร์ด)"
+        aria-label={`ลากเพื่อจัดลำดับ ${it.name}`}
+        onPointerDown={(ev) => gripDown(ev, it)} onPointerMove={gripMove}
+        onPointerUp={gripEnd} onPointerCancel={gripEnd}
+        onKeyDown={(ev) => gripKey(ev, it)}>
+        <svg width="14" height="20" viewBox="0 0 14 20" aria-hidden="true" focusable="false">
+          <g fill="currentColor">
+            <circle cx="4" cy="4" r="1.6" /><circle cx="10" cy="4" r="1.6" />
+            <circle cx="4" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" />
+            <circle cx="4" cy="16" r="1.6" /><circle cx="10" cy="16" r="1.6" />
+          </g>
+        </svg>
+      </button>
       <input className="e-name" value={it.name} aria-label={`แก้ชื่อ ${it.name}`}
         onChange={(e) => patchItem(it.id, { name: e.target.value })} />
       <input className="e-unit" value={it.unit} aria-label={`แก้หน่วย ${it.name}`}
@@ -2881,9 +2991,16 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .linkrow{display:flex;gap:14px;flex-wrap:wrap}
 .ehead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
  padding:7px 0 9px;font-size:11.5px;color:var(--soft);border-bottom:1px solid var(--rule);margin-bottom:6px}
-.erow{display:grid;grid-template-columns:minmax(0,1.5fr) 62px minmax(0,1fr) 74px;gap:6px;
+.erow{display:grid;grid-template-columns:26px minmax(0,1.5fr) 62px minmax(0,1fr) 74px;gap:6px;
  align-items:center;padding:4px 0;border-bottom:1px solid #F2F5F0}
 .erow.off{opacity:.45}
+.erow.drag{background:#EEF4EC;box-shadow:0 3px 12px rgba(0,0,0,.2);position:relative;z-index:2;opacity:1}
+.e-grip{display:flex;align-items:center;justify-content:center;width:26px;height:34px;padding:0;
+ border:none;background:transparent;color:var(--soft);cursor:grab;touch-action:none;
+ user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:3px}
+.e-grip:hover{background:#EEF1EC;color:var(--ink)}
+.e-grip:focus-visible{outline:2px solid var(--dr)}
+.erow.drag .e-grip{cursor:grabbing;color:var(--ink)}
 .erow input{font-family:'Sarabun',sans-serif;font-size:12.5px;border:1px solid var(--rule);
  background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0;width:100%}
 .erow input:focus{outline:none;border-color:var(--dr)}
@@ -2895,7 +3012,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
  background:#fff;color:#D6453D;border-radius:3px;cursor:pointer;white-space:nowrap}
 .e-del:hover{background:#FBEEEC}
 .enote{font-size:11px;color:var(--soft);margin:8px 0 0;line-height:1.5}
-@media(max-width:680px){.erow{grid-template-columns:minmax(0,1fr) 56px;grid-template-areas:"nm nm" "vd un" "of of";gap:4px}
+@media(max-width:680px){.erow{grid-template-columns:26px minmax(0,1fr) 56px;grid-template-areas:"gr nm nm" "gr vd un" "gr of of";gap:4px}
+ .e-grip{grid-area:gr;align-self:start;height:40px}
  .e-name{grid-area:nm}.e-unit{grid-area:un}.e-vend{grid-area:vd}.e-actions{grid-area:of;justify-content:flex-start}}
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule)}
 .addrow input{font-family:'Sarabun',sans-serif;font-size:12px;border:1px solid var(--rule);
@@ -3323,7 +3441,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                           {editCat === c ? (
                             <>
                               <div className="ehead">
-                                <span>แก้ชื่อของ · หน่วย · ร้านประจำ ได้เลย พิมพ์ทับได้ทันที</span>
+                                <span>แก้ชื่อของ · หน่วย · ร้านประจำ ได้เลย พิมพ์ทับได้ทันที · ลากที่จุดๆ ด้านซ้ายเพื่อจัดลำดับ</span>
                                 <button className="tbtn ghost" onClick={() => setEditCat(null)}>เสร็จแล้ว</button>
                               </div>
                               {inCat(c).map(renderEdit)}

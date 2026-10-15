@@ -8,6 +8,17 @@
 
 ---
 
+## 16 ต.ค. 2569 — ลากจัดลำดับรายการของในหน้ารายวัน
+- ไฟล์: `laab-daily-entry-v17.jsx` (fetchCatalog, upsertItemDB, saveItemOrderDB ใหม่, addItem, ฟังก์ชันลาก gripDown/Move/End/Key, renderEdit + CSS), build ใหม่ → `app.min.js` → ฝังใน `index.html`
+- ฐานข้อมูล: migration `add_items_sort_order` เพิ่มคอลัมน์ `items.sort_order integer` (ว่างได้; ที่ยังไม่จัด = เรียงตามชื่อต่อท้าย)
+- เหตุผล: บอสหนึ่งขอลากเรียงรายการในหมวดเอง จัดได้เฉพาะในหมวดเดียวกัน ใช้ตรงกันทุกเครื่อง รองรับนิ้วบน iPad
+- ทดสอบ: Playwright กับ Supabase จำลอง (เมาส์/ทัช/คีย์บอร์ด/เลื่อนจออัตโนมัติ) ผ่านทั้งหมด ยังไม่ได้ลองบน iPad จริง
+- commit: รอ · push: ยังไม่ push
+- ไฟล์ตัวจริง: `laab-daily-entry-v17.jsx`
+
+## 2 ต.ค. 2569 — บันทึกใบ d457e9f (README/CHANGELOG)
+- commit `d457e9f` push แล้ว (แก้ README ให้ตรงว่าหน้าเงินเดือนมีปุ่ม "เปิดแก้ไข")
+
 ## 2 ต.ค. 2569 — สร้างบันทึกนี้ + ปรับ README (ไม่แตะโค้ด)
 - ไฟล์: `README.md` (เขียนใหม่ให้ตรง v17), `CHANGELOG.md` (สร้างใหม่)
 - เหตุผล: README เดิมเป็นของ v16 และชี้ไปไฟล์ v15 ซึ่งเสี่ยงให้แก้ผิดไฟล์
