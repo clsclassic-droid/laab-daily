@@ -746,6 +746,30 @@ async function fetchDashboardMonthly(periods) {
   });
 }
 
+/* ── แนวโน้มกำไรตั้งแต่เริ่มธุรกิจ — เดือนแรก = วันที่เก่าสุดในสมุดรายวัน · กำไรหลังหัก VAT = กำไร − (VAT ขาย − VAT ซื้อ) หักทุกเดือน ── */
+async function fetchProfitHistory() {
+  const { data, error } = await supabase.from("journal_entries").select("entry_date")
+    .eq("entity", ENTITY).order("entry_date", { ascending: true }).limit(1);
+  if (error) throw error;
+  const cur = monthOf(todayISO());
+  const first = data && data[0] ? monthOf(data[0].entry_date) : cur;
+  const periods = [];
+  for (let p = first; p <= cur && periods.length < 240; p = shiftMonth(p, 1)) periods.push(p);
+  const vendors = await fetchVendorVatList();
+  const vatSet = new Set(vendors.filter((v) => v.vat).map((v) => v.name));
+  const [monthly, vats] = await Promise.all([
+    fetchDashboardMonthly(periods),
+    Promise.all(periods.map((p) => fetchVatSummary(p, vatSet))),
+  ]);
+  let cum = 0;
+  return monthly.map((m, i) => {
+    const vat = vats[i].netVat;
+    const profitAfterVat = r2(m.netProfitAfterTax - vat);
+    cum = r2(cum + profitAfterVat);
+    return { period: m.period, revenue: m.revenue, expense: m.expense, vat, profitAfterVat, cum, runAvg: r2(cum / (i + 1)), partial: m.period === cur };
+  });
+}
+
 /* ── VAT รายเดือน (ประมาณการ) — VAT ขาย = ยอดขายจากบัญชี×7/107 (ตรวจสอบกับตารางยอดขายรายวันด้วย), VAT ซื้อ = เฉพาะยอดที่มีใบกำกับภาษี ── */
 async function fetchVatSummary(period, vatVendorSet) {
   const start = period + "-01";
@@ -1126,6 +1150,59 @@ function ProfitBarChart({ rows, height = 200, formatValue, selected, onSelect })
           </g>
         );
       })}
+    </svg>
+  );
+}
+
+/* กราฟแนวโน้มกำไรรายเดือน — แท่ง = กำไรหลังหัก VAT (เขียว/แดง), เส้น = ค่าเฉลี่ยสะสมตั้งแต่เริ่มธุรกิจ
+   ป้ายแกนนอนแสดงทุกเดือน · เดือนที่ยังไม่จบ: แท่งจาง + เส้นช่วงสุดท้ายเป็นเส้นประ */
+function ProfitTrendChart({ rows, height = 230, formatValue }) {
+  const width = 700, padL = 50, padB = rows.length > 18 ? 34 : 24, padT = 20, padR = 12;
+  const chartW = width - padL - padR, chartH = height - padT - padB;
+  const all = rows.flatMap((r) => [A(r.profitAfterVat), A(r.runAvg)]);
+  const maxPos = Math.max(1, ...all), maxNeg = Math.max(0, ...all.map((v) => -v));
+  const span = maxPos + maxNeg;
+  const zeroY = padT + chartH * (maxPos / span);
+  const yOf = (v) => zeroY - (v / span) * chartH;
+  const slot = rows.length ? chartW / rows.length : chartW;
+  const cx = (i) => padL + i * slot + slot / 2;
+  const fmt = (v) => (v < 0 ? "−" : "") + (formatValue ? formatValue(Math.abs(v)) : Math.round(Math.abs(v)));
+  const ticks = maxNeg > 0 ? [maxPos, maxPos / 2, 0, -maxNeg] : [maxPos, maxPos * 0.75, maxPos / 2, maxPos / 4, 0];
+  const rotate = rows.length > 18;
+  const pts = rows.map((r, i) => [cx(i), yOf(A(r.runAvg))]);
+  const lastFull = rows.length && rows[rows.length - 1].partial ? rows.length - 1 : rows.length;
+  const solid = pts.slice(0, Math.max(lastFull, 1)).map((p) => p.join(",")).join(" ");
+  const dashed = lastFull < rows.length && lastFull > 0 ? [pts[lastFull - 1], pts[lastFull]].map((p) => p.join(",")).join(" ") : "";
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {ticks.map((t, k) => (
+        <g key={k}>
+          <line x1={padL} x2={width - padR} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? "#9AA79F" : "#E3E9E0"} strokeWidth={1} />
+          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">{fmt(t)}</text>
+        </g>
+      ))}
+      {rows.map((r, i) => {
+        const v = A(r.profitAfterVat);
+        const bw = Math.max(2, slot * 0.58);
+        const x = cx(i) - bw / 2;
+        const y = v >= 0 ? yOf(v) : zeroY;
+        const h = Math.abs(yOf(v) - zeroY);
+        const [yy, mm] = r.period.split("-").map(Number);
+        const label = THMON[mm - 1] + ((mm === 1 && i > 0) || (i === 0 && rows.length > 12) ? " " + String((yy + 543) % 100).padStart(2, "0") : "") + (r.partial ? "*" : "");
+        return (
+          <g key={r.period}>
+            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1E6E4A" : "#A8443A"} opacity={r.partial ? 0.45 : 1}>
+              <title>{`${thMonth(r.period)}: ${money(v)}`}</title></rect>}
+            <text x={cx(i)} y={v >= 0 ? y - 4 : y + h + 10} textAnchor="middle" fontSize={8.5}
+              fill={v >= 0 ? "#3A453E" : "#A8443A"} fontFamily="'IBM Plex Mono',monospace">{fmt(v)}</text>
+            <text x={cx(i)} y={height - (rotate ? 8 : 6)} textAnchor={rotate ? "end" : "middle"} fontSize={9.5} fill="#4A5A50" fontFamily="Sarabun,sans-serif"
+              transform={rotate ? `rotate(-40 ${cx(i)} ${height - 8})` : undefined}>{label}</text>
+          </g>
+        );
+      })}
+      {solid && <polyline points={solid} fill="none" stroke="#C07A1A" strokeWidth={2.2} strokeLinejoin="round" />}
+      {dashed && <polyline points={dashed} fill="none" stroke="#C07A1A" strokeWidth={2.2} strokeDasharray="5 4" />}
+      {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={2.8} fill="#fff" stroke="#C07A1A" strokeWidth={1.6} />)}
     </svg>
   );
 }
@@ -1517,6 +1594,16 @@ function Dashboard() {
 
   const [profitSel, setProfitSel] = useState(null); // วันที่ที่แตะเลือกในกราฟกำไรรายวัน
 
+  const [hist, setHist] = useState(null); // แนวโน้มกำไรรายเดือนตั้งแต่เริ่มธุรกิจ
+  const [histErr, setHistErr] = useState("");
+  const [histRange, setHistRange] = useState("ytd"); // "6m" | "ytd" | "all"
+  useEffect(() => {
+    (async () => {
+      try { setHist(await fetchProfitHistory()); }
+      catch (e) { setHistErr(String((e && e.message) || e)); }
+    })();
+  }, []);
+
   const [vendorVatList, setVendorVatList] = useState(null);
   const [vatTrend, setVatTrend] = useState(null);
   const [vatLoading, setVatLoading] = useState(true);
@@ -1707,9 +1794,67 @@ function Dashboard() {
     </div>
   );
 
+  const curYear = today.slice(0, 4);
+  const histRows = !hist ? [] : histRange === "6m" ? hist.slice(-6) : histRange === "ytd" ? hist.filter((r) => r.period.startsWith(curYear)) : hist;
+  const histLast = hist && hist.length ? hist[hist.length - 1] : null;
+  const histFull = hist ? hist.filter((r) => !r.partial) : [];
+  const histLastFull = histFull.length ? histFull[histFull.length - 1] : null;
+  const histBest = histFull.length ? histFull.reduce((b, r) => (r.profitAfterVat > b.profitAfterVat ? r : b)) : null;
+  const histSignMoney = (v) => (v < 0 ? "−" : "") + money(Math.abs(v));
+
   return (
     <>
       <MonthSummary />
+      <div className="card">
+        <p className="eyebrow"><span>แนวโน้มกำไรหลังหัก VAT — รายเดือน</span></p>
+        {histErr ? (
+          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {histErr}</p>
+        ) : !hist ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              <button className={`navb${histRange === "6m" ? " active" : ""}`} onClick={() => setHistRange("6m")}>6 เดือน</button>
+              <button className={`navb${histRange === "ytd" ? " active" : ""}`} onClick={() => setHistRange("ytd")}>ตั้งแต่ ม.ค. ปีนี้</button>
+              <button className={`navb${histRange === "all" ? " active" : ""}`} onClick={() => setHistRange("all")}>ทั้งหมดตั้งแต่เริ่ม</button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 22, marginBottom: 10 }}>
+              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>กำไรสะสมตั้งแต่ {thMonth(hist[0].period)}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: histLast.cum >= 0 ? "var(--ok)" : "var(--margin)" }}>{histSignMoney(histLast.cum)}</div></div>
+              {histLastFull && <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>ค่าเฉลี่ยสะสม/เดือน (ถึง {thMonth(histLastFull.period)})</div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: "#C07A1A" }}>{histSignMoney(histLastFull.runAvg)}</div></div>}
+              {histBest && <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>เดือนที่ดีที่สุด</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{thMonth(histBest.period)} <span style={{ fontSize: 14, fontFamily: "'IBM Plex Mono',monospace", color: "var(--ok)" }}>{money(histBest.profitAfterVat)}</span></div></div>}
+            </div>
+            <ProfitTrendChart rows={histRows} formatValue={fmtK} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 11.5 }}>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไรหลังหัก VAT</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
+              <span><span style={{ width: 16, height: 3, background: "#C07A1A", display: "inline-block", marginRight: 5, verticalAlign: "middle" }} />ค่าเฉลี่ยสะสมตั้งแต่เริ่มธุรกิจ</span>
+              {histLast.partial && <span style={{ color: "var(--soft)" }}>* = ยังไม่จบเดือน</span>}
+            </div>
+            <div style={{ overflowX: "auto", marginTop: 14 }}>
+              <div style={{ minWidth: 700 }}>
+                <div className="histrow prhead">
+                  <span>เดือน</span><span>ยอดขาย</span><span>รายจ่าย</span><span>VAT ต้องนำส่ง</span><span>กำไรหลังหัก VAT</span><span>กำไรสะสม</span><span>ค่าเฉลี่ยสะสม</span>
+                </div>
+                {histRows.map((r) => (
+                  <div className="histrow" key={r.period} style={r.partial ? { color: "var(--soft)" } : undefined}>
+                    <span className="prname">{thMonth(r.period)}{r.partial ? " *" : ""}</span>
+                    <span>{money(r.revenue)}</span>
+                    <span>{money(r.expense)}</span>
+                    <span>{money(r.vat)}</span>
+                    <span style={{ fontWeight: 600, color: r.profitAfterVat >= 0 ? "var(--ok)" : "var(--margin)" }}>{histSignMoney(r.profitAfterVat)}</span>
+                    <span>{histSignMoney(r.cum)}</span>
+                    <span style={{ color: "#C07A1A" }}>{histSignMoney(r.runAvg)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="foot" style={{ marginTop: 10 }}><b>กำไรหลังหัก VAT</b> = ยอดขาย − รายจ่าย − ภาษีเงินได้ที่ลงบัญชี − VAT ต้องนำส่ง (VAT ขาย ยอดขาย×7/107 − VAT ซื้อจากร้านที่ติ๊ก "จด VAT" และค่าใช้จ่ายที่ติ๊ก "มีใบกำกับภาษี") · หัก VAT ทุกเดือนตั้งแต่เดือนแรก · <b>ค่าเฉลี่ยสะสม</b> = กำไรสะสมตั้งแต่เริ่มธุรกิจ ÷ จำนวนเดือนถึงเดือนนั้น (นับตั้งแต่ {thMonth(hist[0].period)} เสมอ ไม่ว่าเลือกช่วงไหน) · เดือนที่มี * ยังไม่จบ ค่าเช่า/ไฟ/น้ำมักยังไม่ได้ลง ตัวเลขจะลดลงอีกตอนปิดยอดสิ้นเดือน</p>
+          </>
+        )}
+      </div>
       <div className="card">
         <p className="eyebrow"><span>ยอดขาย — {rangeLabel}</span></p>
         {RangePicker}
@@ -3351,6 +3496,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 100px 108px;gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
 .trendrow.prhead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
+.histrow{display:grid;grid-template-columns:minmax(96px,1.1fr) repeat(6,minmax(84px,1fr));gap:8px;align-items:center;
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
+.histrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.histrow.prhead{font-size:10px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
+.histrow.prhead>span{font-family:inherit}
 .profitrow{display:grid;grid-template-columns:minmax(96px,1.2fr) repeat(6,minmax(70px,1fr));gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
 .profitrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
