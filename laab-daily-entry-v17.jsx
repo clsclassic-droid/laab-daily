@@ -680,7 +680,7 @@ const CHANNELS = [
 
 async function fetchDashboardDaily(fromDate, toDate) {
   const [salesRes, purchRes, laborRes] = await Promise.all([
-    supabase.from("daily_sales").select("sale_date,channel,amount")
+    supabase.from("daily_sales").select("sale_date,channel,amount,commission_amount")
       .eq("entity", ENTITY).gte("sale_date", fromDate).lte("sale_date", toDate),
     // ดึงหมวด (cost_group) ของแต่ละรายการซื้อผ่าน items → accounts เพื่อแบ่งกราฟรายจ่ายรายวันเป็นหมวดๆ
     supabase.from("daily_purchases").select("purchase_date,amount,items(account_code,accounts(cost_group))")
@@ -693,9 +693,11 @@ async function fetchDashboardDaily(fromDate, toDate) {
   if (laborRes.error) throw laborRes.error;
 
   const salesByDate = {};
+  const commByDate = {}; // ค่าคอม Grab ที่บันทึกไว้ตอนปิดยอดแต่ละวัน (ใช้คิดกำไรรายวัน)
   (salesRes.data || []).forEach((r) => {
     const d = salesByDate[r.sale_date] || (salesByDate[r.sale_date] = {});
     d[r.channel] = (d[r.channel] || 0) + A(r.amount);
+    if (A(r.commission_amount)) commByDate[r.sale_date] = (commByDate[r.sale_date] || 0) + A(r.commission_amount);
   });
   const purchByDate = {};
   const purchGroupByDate = {};
@@ -709,7 +711,7 @@ async function fetchDashboardDaily(fromDate, toDate) {
   (laborRes.data || []).forEach((r) => {
     laborByDate[r.work_date] = (laborByDate[r.work_date] || 0) + A(r.amount);
   });
-  return { salesByDate, purchByDate, purchGroupByDate, laborByDate };
+  return { salesByDate, commByDate, purchByDate, purchGroupByDate, laborByDate };
 }
 
 async function fetchAccountTotal(period, code) {
@@ -1075,6 +1077,51 @@ function StackedBarChart({ rows, series, height = 190, formatValue }) {
               <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
                 {r.tick}
               </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* กราฟกำไรรายวัน — แท่งเหนือเส้น 0 = กำไร (เขียว), ใต้เส้น 0 = ขาดทุน (แดง) · แตะ/คลิกแท่งเพื่อเลือกวัน */
+function ProfitBarChart({ rows, height = 200, formatValue, selected, onSelect }) {
+  const width = 700, padL = 46, padB = 22, padT = 18, padR = 10;
+  const chartW = width - padL - padR, chartH = height - padT - padB;
+  const vals = rows.map((r) => A(r.profit));
+  const maxPos = Math.max(0, ...vals), maxNeg = Math.max(0, ...vals.map((v) => -v));
+  const span = Math.max(1, maxPos + maxNeg);
+  const zeroY = padT + chartH * (maxPos / span);
+  const yOf = (v) => zeroY - (v / span) * chartH;
+  const barW = rows.length ? chartW / rows.length : chartW;
+  const ticks = maxNeg > 0 ? [maxPos, 0, -maxNeg] : [maxPos, maxPos / 2, 0];
+  const fmt = (v) => (v < 0 ? "−" : "") + (formatValue ? formatValue(Math.abs(v)) : Math.round(Math.abs(v)));
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block", touchAction: "manipulation" }}>
+      {ticks.map((t, k) => (
+        <g key={k}>
+          <line x1={padL} x2={width - padR} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? "#9AA79F" : "#E3E9E0"} strokeWidth={1} />
+          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">{fmt(t)}</text>
+        </g>
+      ))}
+      {rows.map((r, i) => {
+        const v = A(r.profit);
+        const x = padL + i * barW + barW * 0.18;
+        const bw = Math.max(1, barW * 0.64);
+        const y = v >= 0 ? yOf(v) : zeroY;
+        const h = Math.abs(yOf(v) - zeroY);
+        const isSel = selected === r.date;
+        return (
+          <g key={r.date} onClick={() => onSelect && onSelect(isSel ? null : r.date)} style={{ cursor: "pointer" }}>
+            <rect x={padL + i * barW} y={padT} width={barW} height={chartH} fill={isSel ? "#EEF2EC" : "transparent"} />
+            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1E6E4A" : "#A8443A"} opacity={selected && !isSel ? 0.55 : 1} />}
+            {r.hasData && (
+              <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 9} textAnchor="middle" fontSize={8}
+                fill={v >= 0 ? "#3A453E" : "#A8443A"} fontFamily="'IBM Plex Mono',monospace">{fmt(v)}</text>
+            )}
+            {r.tick && (
+              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">{r.tick}</text>
             )}
           </g>
         );
@@ -1468,6 +1515,8 @@ function Dashboard() {
   const [rangeLoading, setRangeLoading] = useState(true);
   const [rangeErr, setRangeErr] = useState("");
 
+  const [profitSel, setProfitSel] = useState(null); // วันที่ที่แตะเลือกในกราฟกำไรรายวัน
+
   const [vendorVatList, setVendorVatList] = useState(null);
   const [vatTrend, setVatTrend] = useState(null);
   const [vatLoading, setVatLoading] = useState(true);
@@ -1581,6 +1630,33 @@ function Dashboard() {
     };
   });
 
+  /* กำไรรายวัน = ยอดขาย − VAT ขาย (ยอดขาย×7/107 เพราะราคารวม VAT แล้ว) − ค่าคอม Grab − ซื้อของทุกหมวด − ค่าแรงเช็คชื่อ
+     ยังไม่หักค่าใช้จ่ายรายเดือน (ค่าเช่า ไฟ น้ำ ฯลฯ) และยังไม่คืน VAT ซื้อ — สองอย่างนี้ดูที่ตารางรายเดือน */
+  const profitByDay = rangeDays.map((d) => {
+    const s = (rangeDaily && rangeDaily.salesByDate[d]) || {};
+    const sales = r2(CHANNELS.reduce((sum, c) => sum + A(s[c.key]), 0));
+    const vat = r2(sales * 7 / 107);
+    const comm = r2(A(rangeDaily && rangeDaily.commByDate && rangeDaily.commByDate[d]));
+    const purch = r2(A(rangeDaily && rangeDaily.purchByDate[d]));
+    const labor = r2(A(rangeDaily && rangeDaily.laborByDate[d]));
+    const profit = r2(sales - vat - comm - purch - labor);
+    return { date: d, sales, vat, comm, purch, labor, profit, hasData: sales > 0 || purch > 0 || labor > 0 };
+  });
+  const profitTrimmedRaw = (() => {
+    let a = 0, b = profitByDay.length - 1;
+    while (a <= b && !profitByDay[a].hasData) a++;
+    while (b >= a && !profitByDay[b].hasData) b--;
+    return a > b ? [] : profitByDay.slice(a, b + 1);
+  })();
+  const tickEveryProfit = Math.max(1, Math.ceil(profitTrimmedRaw.length / 10));
+  const profitRows = profitTrimmedRaw.map((r, i) => ({ ...r, tick: i % tickEveryProfit === 0 ? String(Number(r.date.slice(8, 10))) : "" }));
+  const profitSum = profitByDay.reduce((acc, r) => ({
+    sales: acc.sales + r.sales, vat: acc.vat + r.vat, comm: acc.comm + r.comm, purch: acc.purch + r.purch, labor: acc.labor + r.labor, profit: acc.profit + r.profit,
+    plus: acc.plus + (r.hasData && r.profit >= 0 ? 1 : 0), minus: acc.minus + (r.hasData && r.profit < 0 ? 1 : 0),
+  }), { sales: 0, vat: 0, comm: 0, purch: 0, labor: 0, profit: 0, plus: 0, minus: 0 });
+  const profitPick = profitSel ? profitByDay.find((r) => r.date === profitSel) : null;
+  const signMoney = (v) => (v < 0 ? "−" : "") + money(Math.abs(v));
+
   const salesTrimmed = rangeDaily ? trimZeroEdges(salesByDay, ["cash", "transfer", "grab", "thaichuaithai"]) : [];
   const expTrimmed = rangeDaily ? trimZeroEdges(expByDay, ["food", "transport", "waste_misc", "labor"]) : [];
   const tickEverySales = Math.max(1, Math.ceil(salesTrimmed.length / 10));
@@ -1678,6 +1754,75 @@ function Dashboard() {
                 );
               })}
             </div>
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <p className="eyebrow"><span>กำไรรายวัน — {rangeLabel}</span></p>
+        <p style={{ fontSize: 12, color: "var(--soft)", margin: "0 0 10px" }}>เลือกช่วงวันที่ได้จากปุ่มในการ์ดยอดขายด้านบน · แตะแท่งเพื่อดูรายละเอียดของวันนั้น</p>
+        {rangeLoading ? (
+          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+        ) : rangeErr ? (
+          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginBottom: 10 }}>
+              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>กำไรรวมช่วงนี้</div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: profitSum.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(r2(profitSum.profit))}</div></div>
+              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>วันที่กำไร</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ok)" }}>{profitSum.plus} วัน</div></div>
+              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>วันที่ขาดทุน</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: profitSum.minus ? "var(--margin)" : "var(--soft)" }}>{profitSum.minus} วัน</div></div>
+            </div>
+            <ProfitBarChart rows={profitRows} formatValue={fmtK} selected={profitSel} onSelect={setProfitSel} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 11.5 }}>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไร</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
+            </div>
+            {profitPick && (
+              <div style={{ marginTop: 12, padding: "10px 14px", border: "1px solid var(--line, #DCE3D8)", borderRadius: 6, background: "#FAFBF8", fontSize: 13.5, lineHeight: 1.75 }}>
+                <b>{thDate(profitPick.date)}</b>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", columnGap: 16, fontFamily: "'IBM Plex Mono',monospace" }}>
+                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>ยอดขาย</span><span style={{ textAlign: "right" }}>{money(profitPick.sales)}</span>
+                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− VAT ขาย (7/107)</span><span style={{ textAlign: "right" }}>{money(profitPick.vat)}</span>
+                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ค่าคอม Grab</span><span style={{ textAlign: "right" }}>{money(profitPick.comm)}</span>
+                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ซื้อของ (ทุกหมวด)</span><span style={{ textAlign: "right" }}>{money(profitPick.purch)}</span>
+                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ค่าแรง (เช็คชื่อ)</span><span style={{ textAlign: "right" }}>{money(profitPick.labor)}</span>
+                  <span style={{ fontFamily: "Sarabun,sans-serif", fontWeight: 700, borderTop: "1px solid #CBD5C6" }}>= กำไร</span>
+                  <span style={{ textAlign: "right", fontWeight: 700, borderTop: "1px solid #CBD5C6", color: profitPick.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(profitPick.profit)}</span>
+                </div>
+                {profitPick.sales === 0 && profitPick.hasData && (
+                  <div style={{ fontSize: 12, color: "var(--margin)", marginTop: 4 }}>วันนี้ยังไม่มียอดขายในระบบ (ร้านปิด หรือยังไม่ได้กดปิดยอด)</div>
+                )}
+              </div>
+            )}
+            <p className="eyebrow" style={{ marginTop: 18 }}><span>กำไรรายวัน (ตาราง)</span></p>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 640, maxHeight: 320, overflowY: "auto", marginTop: 6 }}>
+                <div className="profitrow prhead" style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                  <span>วันที่</span><span>ยอดขาย</span><span>VAT ขาย</span><span>ค่าคอม Grab</span><span>ซื้อของ</span><span>ค่าแรง</span><span>กำไร</span>
+                </div>
+                {profitByDay.map((r) => (
+                  <div className="profitrow" key={r.date} onClick={() => setProfitSel(r.date === profitSel ? null : r.date)}
+                    style={{ cursor: "pointer", background: r.date === profitSel ? "#EEF2EC" : undefined }}>
+                    <span className="prname">{thDate(r.date)}</span>
+                    <span>{money(r.sales)}</span>
+                    <span>{money(r.vat)}</span>
+                    <span>{money(r.comm)}</span>
+                    <span>{money(r.purch)}</span>
+                    <span>{money(r.labor)}</span>
+                    <span style={{ fontWeight: 600, color: !r.hasData ? "var(--soft)" : r.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{r.hasData ? signMoney(r.profit) : "—"}</span>
+                  </div>
+                ))}
+                <div className="profitrow prhead" style={{ position: "sticky", bottom: 0, background: "#fff" }}>
+                  <span>รวม</span><span>{money(r2(profitSum.sales))}</span><span>{money(r2(profitSum.vat))}</span><span>{money(r2(profitSum.comm))}</span>
+                  <span>{money(r2(profitSum.purch))}</span><span>{money(r2(profitSum.labor))}</span>
+                  <span style={{ color: profitSum.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(r2(profitSum.profit))}</span>
+                </div>
+              </div>
+            </div>
+            <p className="foot" style={{ marginTop: 10 }}><b>กำไรรายวัน</b> = ยอดขาย − VAT ขาย (ยอดขาย×7/107 เพราะราคาขายรวม VAT แล้ว) − ค่าคอม Grab − ซื้อของทุกหมวด − ค่าแรงจากการเช็คชื่อ · <b>ยังไม่หักค่าใช้จ่ายรายเดือน</b> (ค่าเช่า ไฟ น้ำ POS ฯลฯ) และ<b>ยังไม่คืน VAT ซื้อ</b> จากร้านที่ออกใบกำกับภาษี — สองอย่างนี้ดูที่ตาราง "แนวโน้มรายเดือน" และการ์ด VAT ด้านล่าง · ไม่หักภาษีเงินได้ (คิดเป็นรายปี) · วันที่ยังไม่กดปิดยอดอาจยังไม่มียอดขาย ทำให้ดูเหมือนขาดทุน</p>
           </>
         )}
       </div>
@@ -3206,6 +3351,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 100px 108px;gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
 .trendrow.prhead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
+.profitrow{display:grid;grid-template-columns:minmax(96px,1.2fr) repeat(6,minmax(70px,1fr));gap:8px;align-items:center;
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
+.profitrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.profitrow.prhead{font-size:10px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
+.profitrow.prhead>span{font-family:inherit}
 @media(max-width:640px){
   .prrow{grid-template-columns:minmax(0,1fr) 76px 76px 76px;row-gap:3px}
   .prrow>span:nth-child(2),.prrow.prhead>span:nth-child(6),.prrow>span:nth-child(6){display:none}
