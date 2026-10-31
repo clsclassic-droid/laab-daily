@@ -2492,9 +2492,25 @@ function LaabEntryApp({ userEmail }) {
     const r = { ...(rowsDataRef.current[id] || seed), [field]: v };
     r[TKEY[field]] = v !== "";
     const rr = recalc(r);
+    // ลบช่องจนว่าง (เช่น กด backspace ที่ยอดรวม) → ระหว่างยังอยู่ในช่อง ให้ว่างค้างไว้ก่อน ไม่คำนวณเติมกลับทันที
+    // จะได้พิมพ์เลขใหม่ได้ · ถ้าแตะออกจากช่องแล้วยังว่าง ระบบค่อยคำนวณให้ (ดู refillOnBlur)
+    if (v === "" && has(rr[field])) { rr[field] = ""; pendingRefill.current[id + ":" + field] = true; }
     rowsDataRef.current = { ...rowsDataRef.current, [id]: rr };
     setRows(() => rowsDataRef.current);
     dirty();
+    track(saveRowDB(date, id, rr));
+  };
+  const pendingRefill = useRef({});
+  const refillOnBlur = (id, field) => {
+    const k = id + ":" + field;
+    if (!pendingRefill.current[k]) return;
+    delete pendingRefill.current[k];
+    const cur = rowsDataRef.current[id];
+    if (!cur || has(cur[field])) return; // พิมพ์เลขใหม่แล้ว ไม่ต้องเติม
+    const rr = recalc({ ...cur });
+    if (!has(rr[field])) return;
+    rowsDataRef.current = { ...rowsDataRef.current, [id]: rr };
+    setRows(() => rowsDataRef.current);
     track(saveRowDB(date, id, rr));
   };
 
@@ -2545,7 +2561,7 @@ function LaabEntryApp({ userEmail }) {
   };
   const fProps = (id, field) => ({
     onFocus: () => setFocusKey(id + ":" + field),
-    onBlur: () => setFocusKey((k) => (k === id + ":" + field ? null : k)),
+    onBlur: () => { setFocusKey((k) => (k === id + ":" + field ? null : k)); refillOnBlur(id, field); },
   });
 
   const resetRates = () => {
