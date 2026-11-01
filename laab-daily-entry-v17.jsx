@@ -1270,7 +1270,13 @@ function MonthSummary() {
     (async () => {
       setLoading(true); setErr("");
       try {
-        const [cur, prev] = await Promise.all([fetchMonthlySummary(period), fetchMonthlySummary(prevPeriod)]);
+        const vendors = await fetchVendorVatList();
+        const vatSet = new Set(vendors.filter((v) => v.vat).map((v) => v.name));
+        const [cur, prev, curVat, prevVat] = await Promise.all([
+          fetchMonthlySummary(period), fetchMonthlySummary(prevPeriod),
+          fetchVatSummary(period, vatSet), fetchVatSummary(prevPeriod, vatSet),
+        ]);
+        cur.vat = curVat; prev.vat = prevVat;
         const empty = Math.abs(cur.revenue) < 0.005 && Object.values(cur.groups).every((v) => Math.abs(v) < 0.005);
         if (alive && empty && !triedAutoRef.current && period === monthOf(todayISO())) {
           triedAutoRef.current = true;
@@ -1319,10 +1325,12 @@ function MonthSummary() {
   else {
     const c = data.cur, p = data.prev;
     const cExp = totalExp(c), pExp = totalExp(p);
-    const cProfit = r2(c.revenue - cExp), pProfit = r2(p.revenue - pExp);
+    const cVat = c.vat ? c.vat.netVat : 0, pVat = p.vat ? p.vat.netVat : 0;
+    const cProfit = r2(c.revenue - cExp - cVat), pProfit = r2(p.revenue - pExp - pVat);
     const bars = [
       { key: "rev", label: "รายรับ (ยอดขาย)", cur: c.revenue, prev: p.revenue },
       ...COST_GROUP_ORDER.map((g) => ({ key: g, label: COST_GROUP_LABEL[g], cur: c.groups[g] || 0, prev: p.groups[g] || 0 })),
+      { key: "vat", label: "VAT 7% ต้องนำส่ง", cur: cVat, prev: pVat },
     ].filter((b) => Math.abs(b.cur) > 0.005 || Math.abs(b.prev) > 0.005);
     const max = Math.max(1, ...bars.flatMap((b) => [b.cur, b.prev]));
     const w = (v) => `${Math.max(0, (v / max) * 100)}%`;
@@ -1340,7 +1348,17 @@ function MonthSummary() {
             <Delta cur={cExp} prev={pExp} goodWhenUp={false} />
           </div>
           <div className="kpi">
-            <span className="kk">คงเหลือ (กำไร)</span>
+            <span className="kk">VAT 7% ต้องนำส่ง</span>
+            <span className="kn">{cVat < 0 ? "−" : ""}{money(Math.abs(cVat))}</span>
+            <Delta cur={cVat} prev={pVat} goodWhenUp={false} />
+            {c.vat && (
+              <span className="kdelta" style={{ color: "var(--soft)" }}>
+                VAT ขาย {money(c.vat.outputVat)} − VAT ซื้อ (มีใบกำกับ) {money(c.vat.inputVat)}
+              </span>
+            )}
+          </div>
+          <div className="kpi">
+            <span className="kk">กำไรหลังหัก VAT</span>
             <span className="kn" style={{ color: cProfit >= 0 ? "var(--ok)" : "var(--margin)" }}>
               {cProfit < 0 ? "−" : ""}{money(Math.abs(cProfit))}
             </span>
@@ -1372,7 +1390,7 @@ function MonthSummary() {
         ))}
         <p className="foot">
           ดึงสดจากสมุดบัญชี (เฉพาะวันที่กด "ปิดยอด" แล้ว และค่าใช้จ่ายรายเดือน/ค่าแรงที่ปิดยอดแล้ว) ·
-          คงเหลือ = รายรับ − ค่าใช้จ่าย (ยังไม่หัก VAT และภาษีเงินได้)
+          กำไร = รายรับ − ค่าใช้จ่าย − VAT ต้องนำส่ง (VAT ขาย ×7/107 − VAT ซื้อที่มีใบกำกับ · ยังไม่หักภาษีเงินได้)
           {isCurMonth && <> · <b>{thMonth(period)} ยังไม่จบเดือน</b> (ข้อมูลถึงวันที่ {Number(today.slice(8, 10))}) เทียบกับ {thMonth(prevPeriod)} ทั้งเดือน — ค่าเช่า/ไฟ/น้ำ มักยังไม่ได้ลงจนกว่าจะปิดยอดสิ้นเดือน</>}
         </p>
       </>
@@ -3335,7 +3353,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .alertbar.amber{border:1px solid var(--wait);background:#FFF8EC;color:var(--wait)}
 .alertbar.info{border:1px solid var(--dr);background:#F4F9FC;color:var(--dr);font-weight:400}
 /* ── สรุปรายเดือน (แดชบอร์ด) ── */
-.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .kpi{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
 .kpi .kk{font-size:11.5px;color:var(--soft)}
 .kpi .kn{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;color:var(--ink)}
