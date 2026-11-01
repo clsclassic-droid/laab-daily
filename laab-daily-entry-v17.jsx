@@ -3353,7 +3353,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .alertbar.amber{border:1px solid var(--wait);background:#FFF8EC;color:var(--wait)}
 .alertbar.info{border:1px solid var(--dr);background:#F4F9FC;color:var(--dr);font-weight:400}
 /* ── สรุปรายเดือน (แดชบอร์ด) ── */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .kpi{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
 .kpi .kk{font-size:11.5px;color:var(--soft)}
 .kpi .kn{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;color:var(--ink)}
@@ -3395,7 +3395,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .apline em{font-style:normal;font-size:11px;margin-left:4px}
 .apdel{margin-left:8px;font-size:11px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer}
 @media (max-width:640px){
- .kpis{grid-template-columns:1fr}
+ .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
  .mcrow{grid-template-columns:1fr}
  .aprow{grid-template-columns:minmax(0,1fr) 96px;row-gap:4px}
  .aprow .apold{grid-column:1/2}
