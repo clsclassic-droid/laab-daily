@@ -3577,6 +3577,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <h1>ร้านอีสาน/ลาบ<span className="sub">บันทึกรายวัน · สาขา LS · v17</span></h1>
         <div className="dright">
           <span className="userchip">{userEmail}</span>
+          <a className="navb" href="./ft/" style={{ textDecoration: "none", display: "inline-block" }}>โรงลูกชิ้น (FT)</a>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
           {view !== "daily" && (
             <button className="navb" onClick={() => { setView("daily"); loadDay(date, catalog); }}>← กลับไปบันทึกประจำวัน</button>
