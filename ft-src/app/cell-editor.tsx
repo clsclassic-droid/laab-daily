@@ -1,0 +1,33 @@
+'use client';
+import {useState,useRef,useLayoutEffect,useCallback} from 'react';
+import type {PointerEvent,CSSProperties} from 'react';
+import {Dialog,DialogPortal,DialogOverlay,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
+import {Dialog as EditorDialog} from 'radix-ui';
+import {Save,Check,Delete,X} from 'lucide-react';
+export function keypadValue(value:string,key:string,replace=false):string{
+ if(key==='clear')return '';if(key==='back')return value.slice(0,-1);if(key==='sign')return value.startsWith('-')?value.slice(1):'-'+value;
+ if(key==='.')return value.includes('.')?value:(value===''||value==='-'?value+'0.':value+'.');
+ if(!/^\d$/.test(key))return value;
+ return replace?key:(value==='0'?key:value+key);
+}
+export default function CellEditor({label,type,initial,date,customer,busy,onCommit,onSave,onClose}:{label:string;type:string;initial:string;date:string;customer:string;busy:boolean;onCommit:(value:string)=>void;onSave:(value:string)=>Promise<boolean>;onClose:()=>void}){
+ const [value,setValue]=useState(initial==='0'&&type==='number'?'':initial),[replace,setReplace]=useState(true);
+ const panel=useRef<HTMLDivElement>(null),drag=useRef<{id:number;x:number;y:number;left:number;top:number}|null>(null);
+ const [node,setNode]=useState<HTMLDivElement|null>(null);
+ const attachPanel=useCallback((element:HTMLDivElement|null)=>{panel.current=element;setNode(element);},[]);
+ const [viewport,setViewport]=useState({width:460,height:700});
+ const [position,setPosition]=useState<{left:number;top:number}|null>(null);
+ function bounds(left:number,top:number){const v=window.visualViewport,r=panel.current?.getBoundingClientRect();const x=v?.offsetLeft||0,y=v?.offsetTop||0,w=v?.width||window.innerWidth,h=v?.height||window.innerHeight;return {left:Math.max(x+12,Math.min(left,x+w-(r?.width||460)-12)),top:Math.max(y+12,Math.min(top,y+h-Math.min(r?.height||500,h-24)-12))};}
+ function center(){const v=window.visualViewport;const r=panel.current?.getBoundingClientRect();const p=bounds((v?.offsetLeft||0)+((v?.width||window.innerWidth)-(r?.width||460))/2,(v?.offsetTop||0)+80);setPosition(p);try{sessionStorage.removeItem('cell-editor-position');}catch{}}
+ useLayoutEffect(()=>{if(!node)return;
+ const resize=()=>{const v=window.visualViewport;setViewport({width:v?.width||window.innerWidth,height:v?.height||window.innerHeight});setPosition(p=>p?bounds(p.left,p.top):bounds((v?.offsetLeft||0)+((v?.width||window.innerWidth)-node.getBoundingClientRect().width)/2,(v?.offsetTop||0)+80));};
+ // The portal mounts after its parent: measure the actual mounted panel.
+ resize();let saved:null|{left:number;top:number}=null;try{saved=JSON.parse(sessionStorage.getItem('cell-editor-position')||'null');}catch{}if(saved&&Number.isFinite(saved.left)&&Number.isFinite(saved.top))setPosition(bounds(saved.left,saved.top));
+ const observer=new ResizeObserver(resize);observer.observe(node);window.addEventListener('resize',resize);window.addEventListener('scroll',resize);window.visualViewport?.addEventListener('resize',resize);window.visualViewport?.addEventListener('scroll',resize);
+ return()=>{observer.disconnect();window.removeEventListener('resize',resize);window.removeEventListener('scroll',resize);window.visualViewport?.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('scroll',resize);};},[node]);
+ function startDrag(e:PointerEvent<HTMLDivElement>){if(e.target instanceof Element&&e.target.closest('button'))return;const r=panel.current?.getBoundingClientRect();if(!r)return;e.currentTarget.setPointerCapture(e.pointerId);drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,left:r.left,top:r.top};}
+ function moveDrag(e:PointerEvent<HTMLDivElement>){const d=drag.current;if(!d||d.id!==e.pointerId)return;const p=bounds(d.left+e.clientX-d.x,d.top+e.clientY-d.y);setPosition(p);try{sessionStorage.setItem('cell-editor-position',JSON.stringify(p));}catch{}}
+ function stopDrag(){drag.current=null;}
+ function press(key:string){setValue(old=>keypadValue(old,key,replace&&/^\d$/.test(key)));setReplace(false);}
+ return <Dialog open onOpenChange={open=>{if(!open&&!busy)onClose();}}><DialogPortal><DialogOverlay/><EditorDialog.Content ref={attachPanel} style={{'--editor-left':(position?.left??12)+'px','--editor-top':(position?.top??12)+'px','--editor-width':Math.max(0,Math.min(460,viewport.width-24))+'px','--editor-height':Math.max(0,viewport.height-24)+'px',visibility:position?'visible':'hidden'} as CSSProperties} className={'cell-editor '+(type==='number'?'numeric-editor':'text-editor')} onOpenAutoFocus={e=>e.preventDefault()} onCloseAutoFocus={e=>e.preventDefault()} onEscapeKeyDown={e=>{if(busy)e.preventDefault();}} onInteractOutside={e=>{if(busy)e.preventDefault();}}><div className="editor-drag-handle" onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={stopDrag} onPointerCancel={stopDrag}><span>⠿ ลากตรงนี้เพื่อย้ายกล่อง</span><button type="button" onClick={center}>จัดกลาง</button></div><DialogHeader><DialogTitle>{label}</DialogTitle><DialogDescription>{date}{customer?' · '+customer:''}</DialogDescription></DialogHeader><div className="editor-actions"><button disabled={busy} className="editor-done" onClick={()=>{onCommit(value);onClose();}}><Check size={18}/>ใส่ลงตาราง</button><button disabled={busy} className="rowsave editor-save" onClick={async()=>{if(document.activeElement instanceof HTMLElement)document.activeElement.blur();if(await onSave(value))onClose();}}><Save size={18}/>{busy?'กำลังบันทึก…':'บันทึกแถวนี้'}</button></div><label className="editor-value-label">{type==='number'?'จำนวน':label}<input className="editor-value" aria-label={label} type={type==='number'?'text':type} readOnly={type==='number'} value={value} onChange={e=>{setValue(e.target.value);setReplace(false);}} disabled={busy}/></label>{type==='number'?<><div className="number-pad">{['7','8','9','4','5','6','1','2','3','.','0','back'].map(k=><button key={k} disabled={busy} aria-label={k==='back'?'ลบตัวเลขท้าย':k==='.'?'จุดทศนิยม':k} onClick={()=>press(k)}>{k==='back'?<Delete size={24}/>:k}</button>)}</div><div className="pad-extras"><button disabled={busy} onClick={()=>press('clear')}>ล้างตัวเลข</button><button disabled={busy} onClick={()=>press('sign')}>บวก / ลบ</button></div><p className="editor-note">กดตัวเลขด้านบน · “ใส่ลงตาราง” เพื่อกรอกช่องต่อไป · “บันทึกแถวนี้” เพื่อเก็บข้อมูล</p></>:<p className="editor-note">แตะช่องด้านบนเพื่อพิมพ์ เมื่อเสร็จแล้วกดปุ่มด้านบน</p>}<EditorDialog.Close className="editor-close" aria-label="ปิดกล่อง" disabled={busy}><X size={22}/></EditorDialog.Close></EditorDialog.Content></DialogPortal></Dialog>;
+}

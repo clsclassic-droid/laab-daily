@@ -1,0 +1,11 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),ts=require('typescript');
+let raf=new Map(),next=1,clock=1000;const exports_={};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/table-pinch.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exports_,requestAnimationFrame:fn=>{const id=next++;raf.set(id,fn);return id},cancelAnimationFrame:id=>raf.delete(id),Date:{now:()=>clock}});
+const {clampTableZoom,touchDistance,bindTablePinch}=exports_;assert.equal(clampTableZoom(.1),.5);assert.equal(clampTableZoom(3),1.6);assert.equal(touchDistance([{clientX:0,clientY:0},{clientX:3,clientY:4}]),5);
+const handlers=new Map(),options=new Map();const element={addEventListener:(name,fn,opts)=>{handlers.set(name,fn);options.set(name,opts)},removeEventListener:(name,fn)=>{assert.equal(handlers.get(name),fn);handlers.delete(name)}};
+let zoom=1,updates=0;const cleanup=bindTablePinch(element,()=>zoom,n=>{zoom=n;updates++});
+function touch(name,distance){let prevented=false;const touches=distance==null?[{clientX:0,clientY:0}]:[{clientX:0,clientY:0},{clientX:distance,clientY:0}];handlers.get(name)({touches,preventDefault:()=>prevented=true});return prevented}
+assert.equal(touch('touchstart',null),false);assert.equal(touch('touchmove',null),false);assert.equal(updates,0);assert.equal(options.get('touchmove').passive,false);
+assert.equal(touch('touchstart',100),true);assert.equal(touch('touchmove',150),true);assert.equal(touch('touchmove',200),true);assert.equal(raf.size,1);for(const [id,fn]of raf){raf.delete(id);fn()}assert.equal(zoom,1.6);handlers.get('touchend')();
+let blocked=false;handlers.get('click')({preventDefault:()=>blocked=true,stopPropagation:()=>{}});assert(blocked);clock+=600;blocked=false;handlers.get('click')({preventDefault:()=>blocked=true,stopPropagation:()=>{}});assert(!blocked);
+touch('touchstart',100);touch('touchmove',20);handlers.get('touchcancel')();assert.equal(zoom,.5);cleanup();assert.equal(handlers.size,0);assert.equal(raf.size,0);console.log('PASS: pinch scaling and bounds, one-finger scrolling untouched, frame throttling, cancellation, accidental click suppression, cleanup.');

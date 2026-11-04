@@ -1,0 +1,5 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),ts=require('typescript');const exports_={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/sale-matrix-layout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exports_});const {matrixEntryWidth:width,matrixLabelParts:parts,matrixProductWidth:column}=exports_;
+for(const size of [320,768,1024,1366])for(const zoom of [.5,.65,1,1.6]){assert(Math.abs((width(size,zoom)+16)*zoom-size)<.001);}
+for(const name of ['น้ำจิ้ม (ขวด25)','น้ำจิ้ม(ขวด30)','เนื้อจัมโบ(อาหนุ่ย)','เนื้อใหญ่']){const result=parts(name);assert.equal(result.join('').replaceAll(' ',''),name.replaceAll(' ',''));assert(column(name)>=88);}
+assert.equal(parts('น้ำจิ้ม (ขวด25)')[1],'(ขวด25)');assert.equal(parts('เนื้อใหญ่').length,1);
+console.log('PASS: entry fills viewport at 50–160% for phone/tablet widths; label parts preserve bottle digits; long labels receive sufficient column width.');

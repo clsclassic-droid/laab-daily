@@ -1,0 +1,2 @@
+export const updateRecordStatus="UPDATE records SET payload=? WHERE id=? AND payload=?";
+export function recordStatus<T extends {kind:string;voided?:boolean}>(record:T,action:'cancelSale'|'restoreSale',reason:string,now:string){if(record.kind!=='sale')throw Error('ยกเลิกได้เฉพาะรายการขาย');return {...record,voided:action==='cancelSale',...(action==='cancelSale'?{cancelledAt:now,cancelReason:reason}:{restoredAt:now})};}

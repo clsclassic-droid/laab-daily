@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791010354271,
+      "tag": "0000_parched_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791078005029,
+      "tag": "0001_chubby_norman_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791296192839,
+      "tag": "0002_mysterious_carnage",
+      "breakpoints": true
+    }
+  ]
+}

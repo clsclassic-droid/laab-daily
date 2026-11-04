@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),ts=require('typescript');
+function load(file,imports={}){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||(()=>{throw Error(n)})()});return exports;}
+const calendar=load('lib/calendar.ts'),expenses=load('lib/expenses.ts',{'./calendar':calendar});
+const backup=load('lib/backup-file.ts',{'./expenses':expenses,'./business':{basePrices:{}},'./stock-alerts':{validStockMinimums:()=>true},'./product-settings':{knownProducts:()=>[],validProductInfo:()=>true,validPriceMap:()=>true,validProductCategories:()=>true}});
+const old={format:'daothiam-backup',version:1,settings:{opening:'{}','import-v1':'done'},records:[]};assert.equal(backup.validateBackup(old).settings['expenses-v1'],undefined);
+const state=expenses.applyExpense(expenses.emptyExpenses(),{operationId:'new-worker',action:'employee',record:{id:'employee',name:'test',startDate:'2026-10-01',openingBalance:-500,type:'daily',amount:400}});
+const file={...old,settings:{...old.settings,'expenses-v1':JSON.stringify(state)}};assert.equal(JSON.parse(backup.validateBackup(file).settings['expenses-v1']).employees[0].openingBalance,-500);
+const invalid=JSON.parse(JSON.stringify(state));invalid.laborPayments=[{id:'bad',employeeId:'missing',date:'2026-10-01',amount:400,note:''}];assert.throws(()=>backup.validateBackup({...file,settings:{...file.settings,'expenses-v1':JSON.stringify(invalid)}}));
+const sql=load('lib/backup-sql.ts');assert(sql.captureMeta.includes("'expenses-v1'"));const route=fs.readFileSync('app/api/backups/route.ts','utf8');assert.equal((route.match(/DELETE FROM settings WHERE key IN \('opening','import-v1','business-v1','expenses-v1','excel-receipts-v1'\)/g)||[]).length,2);
+console.log('PASS: new expense/employee backup round trip, invalid expense rejection, legacy backup compatibility, capture and both restore paths include expenses.');
