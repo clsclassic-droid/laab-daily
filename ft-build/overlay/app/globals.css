@@ -581,3 +581,18 @@ header{padding-top:8px;padding-bottom:8px}
 .sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .day-add{min-height:0!important;padding-top:1px!important;padding-bottom:1px!important;font-size:inherit}
 .sale-workspace .sales-matrix.mz .day-toggle strong{font-size:inherit!important}
 .sale-workspace .sales-matrix.mz .day-count{font-size:.8em}
+/* ย่อ–ขยายตาราง หน้า ผลิต · ย้อนหลัง · สรุปยอด (table-zoom.tsx) — ตัวหนังสือ ≥13.5px คอลัมน์พอดีตัวหนังสือ */
+.mzt.mzt table{table-layout:auto!important;width:max-content!important;min-width:0!important}
+.mzt.mzt col{width:auto!important}
+.mzt.mzt table th,.mzt.mzt table td{font-size:max(13.5px,calc(15px * var(--mz,1)))!important;line-height:1.25!important;padding:2px 6px!important;height:auto!important;min-width:0!important;width:auto!important;white-space:nowrap}
+.mzt.mzt table th{font-weight:700}
+.mzt.mzt table th small,.mzt.mzt table td small{font-size:max(10.5px,calc(12px * var(--mz,1)))!important}
+.mzt.mzt .entrygrid input,.mzt.mzt .entrygrid select{font-size:inherit!important;padding:2px 4px!important;min-height:0!important;height:auto;width:5em;min-width:0}
+.mzt.mzt .entrygrid .customer input,.mzt.mzt .entrygrid .customer select{width:9em}
+.mzt.mzt .entrygrid .datecell input{width:7.5em}
+.mzt.mzt .entrygrid .notecell input{width:10em}
+.mzt.mzt .entrygrid .rownum{width:2.6em!important;min-width:2.6em!important}
+.mzt.mzt .entrygrid .customer{left:2.6em!important}
+.mzt.mzt .entrygrid thead tr:first-child th{height:2.9em!important}
+.mzt.mzt .entrygrid thead tr:nth-child(2) th{top:2.9em!important}
+.mzt.mzt .entrygrid .statuscell button{min-height:0;padding:2px 8px}
