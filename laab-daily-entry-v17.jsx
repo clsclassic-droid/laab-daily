@@ -3578,6 +3578,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <div className="dright">
           <span className="userchip">{userEmail}</span>
           <a className="navb" href="./ft/" style={{ textDecoration: "none", display: "inline-block" }}>โรงลูกชิ้น (FT)</a>
+          <a className="navb" href="./backup/" style={{ textDecoration: "none", display: "inline-block" }}>สำรองข้อมูล</a>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
           {view !== "daily" && (
             <button className="navb" onClick={() => { setView("daily"); loadDay(date, catalog); }}>← กลับไปบันทึกประจำวัน</button>

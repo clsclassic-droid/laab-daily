@@ -41,6 +41,7 @@ export default function AuthGate({children}:{children:ReactNode}){
 export function HeaderLinks(){
  return <div className="private" style={{display:'flex',gap:12}}>
   <a href="../" style={{textDecoration:'underline'}}>ไปร้านลาบ</a>
+  <a href="../backup/" style={{textDecoration:'underline'}}>สำรองข้อมูล</a>
   <button type="button" onClick={()=>supabase.auth.signOut()} style={{background:'transparent',border:0,textDecoration:'underline',color:'inherit'}}>ออกจากระบบ</button>
  </div>;
 }

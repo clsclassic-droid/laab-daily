@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>สำรองข้อมูล — ระบบบัญชี</title>
+<style>
+  :root{--bg:#FBFAF6;--ink:#1E2A24;--muted:#6B7C72;--line:#E4E1D8;--green:#1F7A4D;--red:#B3261E;--card:#fff}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Noto Sans Thai",sans-serif;-webkit-text-size-adjust:100%}
+  main{max-width:760px;margin:0 auto;padding:16px}
+  header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  h1{font-size:22px;margin:0}
+  nav a{color:var(--ink);margin-left:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  button{font:inherit;font-weight:600;padding:12px 20px;border-radius:10px;border:0;background:var(--ink);color:#fff;cursor:pointer}
+  button:disabled{opacity:.5}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.num{text-align:right;white-space:nowrap}
+  td.err{color:var(--red);font-size:13px}
+  .green{color:var(--green);font-weight:600}.red{color:var(--red);font-weight:600}.muted{color:var(--muted)}
+  #result a{display:inline-block;margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>สำรองข้อมูล</h1>
+    <nav><a href="../">ร้านลาบ</a><a href="../ft/">โรงลูกชิ้น</a></nav>
+  </header>
+  <div id="app">
+    <div class="card">
+      <p id="nightly" class="muted">กำลังตรวจสำรองอัตโนมัติ…</p>
+      <p>กดปุ่มเพื่อดาวน์โหลดข้อมูลทุกกิจการเป็นไฟล์เดียว ระบบดึงทีละ 1,000 แถวและนับเทียบกับจำนวนแถวจริงทุกตาราง แนะนำให้กด<b>สัปดาห์ละครั้ง</b> แล้วเก็บไฟล์ไว้ใน iCloud</p>
+      <button id="go" type="button">ดาวน์โหลดไฟล์สำรอง</button>
+      <span class="muted" id="who" style="margin-left:8px;font-size:13px"></span>
+      <div id="result" style="margin-top:12px"></div>
+    </div>
+    <div class="card"><table><tbody id="list"></tbody></table></div>
+  </div>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

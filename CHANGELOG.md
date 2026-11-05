@@ -8,6 +8,14 @@
 
 ---
 
+## 5 พ.ย. 2569 — หน้า "สำรองข้อมูล" + ปุ่มดาวน์โหลดไฟล์สำรอง (บอสหนึ่งอนุญาต 15:10 "ทำปุ่มดาวน์โหลดไฟล์สำรอง ต่อเลย")
+- ไฟล์ใหม่: `backup-src/main.js` → build `npm run build:backup` → `backup/app.js` + `backup/index.html` (หน้า https://clsclassic-droid.github.io/laab-daily/backup/)
+- ทำงาน: ทุกตาราง 33 ตาราง (รายการอยู่ใน `TABLES` — **เพิ่มตาราง NS/GB ต้องเพิ่มที่นี่**) · นับแถว → ดึงทีละ 1,000 แถวเรียงตาม primary key → นับซ้ำ ถ้าไม่ตรงดึงใหม่ 1 ครั้ง ยังไม่ตรง = ไม่สร้างไฟล์ · ไฟล์ JSON เดียว `backup-laab-YYYY-MM-DD-HHmm.json` ({app, format, created_at, total_rows, data:{ตาราง:{pk,count,rows}}}) · แสดงผลสำรองอัตโนมัติจาก `backup_summary` (ยังไม่ติดตั้ง = แสดง "ยังไม่ได้ติดตั้ง")
+- ลิงก์ "สำรองข้อมูล": ร้านลาบ `laab-daily-entry-v17.jsx` แถบบน (build → ฝัง `index.html`) · FT `ft-build/overlay/src/auth-gate.tsx` HeaderLinks → build `ft-test/` + `ft/`
+- `package.json`: เพิ่ม script `build:backup`
+- ทดสอบ: Playwright จำลอง Supabase (ตาราง 2,500 แถว / 1,000 แถวพอดี / 3 แถว) → ไฟล์ครบ 3,593 แถว id ไม่ซ้ำ · กรณีนับไม่ตรง → ไม่สร้างไฟล์ ✅ · ยังไม่ได้ทดสอบกับข้อมูลจริง (ต้องล็อกอิน)
+- ระบบสำรองทุกคืน: Edge Function `nightly-backup` ติดตั้งแล้ว (ยังไม่ทำงาน) · SQL `claude/ft-port/sql/07_backup.sql` (โปรเจกต์ Claude) **ยังไม่ได้รัน** — หน้าจอยืนยันบน iPad ถูกยกเลิกเอง รอบอสที่คอม
+
 ## 5 พ.ย. 2569 — หน้า FT สรุปยอด: ตาราง "ส่งร้านในเครือ" (บอสหนึ่งอนุญาต 02:50 "แก้เลย")
 - ไฟล์: `ft-build/overlay/app/dashboard.tsx` (คัดลอกจาก `ft-src/app/dashboard.tsx` + คอมโพเนนต์ใหม่ `InternalSends` วางก่อนการ์ดลูกค้า 5 อันดับ) → build `ft-test/` และ `ft/`
 - ตาราง: สินค้า × ร้านในเครือ (ลูกค้าที่มี internalEntity) ตามช่วงที่เลือก แสดงแค่จำนวน · บิล error ไม่นับ แยกเป็นบรรทัด "ปรับสต๊อก (error)" (บวก = หาย, ติดลบ = เกิน)
