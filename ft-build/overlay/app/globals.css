@@ -562,3 +562,16 @@ header{padding-top:8px;padding-bottom:8px}
 
 /* เมนูด้านบน: ปุ่มที่เลือกอยู่เป็นสีแดงแล้ว ไม่ต้องมีกรอบซ้อน (5 พ.ย. 69) */
 .navigation button[data-state=active]:focus-visible,.navigation [role=tab][data-state=active]:focus-visible{outline:none;box-shadow:none}
+
+/* ตารางขาย: ย่อขยายเฉพาะความกว้างคอลัมน์ ตัวหนังสือไม่เล็กกว่า 13px (แบบเว็บเดิม) · 5 พ.ย. 69 */
+.sale-workspace .sales-matrix.mz>table>colgroup>.customer-column,.sale-workspace .sales-matrix.mz>table>thead>tr>th:first-child{width:var(--mz-cust,200px)!important}
+.sale-workspace .sales-matrix.mz>table>colgroup>.money-column{width:var(--mz-money,96px)!important}
+.sale-workspace .sales-matrix.mz>table>thead>tr>th:not(:first-child){width:auto!important}
+.sale-workspace .sales-matrix.mz>table>thead>tr>th,.sale-workspace .sales-matrix.mz>table>tbody>tr>td,.sale-workspace .sales-matrix.mz>table>tfoot>tr>td{font-size:max(13px,calc(15px * var(--mz,1)))!important;line-height:1.35;padding:calc(7px * max(.55,var(--mz,1))) calc(8px * max(.5,var(--mz,1)))!important}
+.sale-workspace .sales-matrix.mz>table>tbody>tr>td:first-child{white-space:normal}
+.sale-workspace .sales-matrix.mz .sale-customer{max-width:100%;min-height:0;font-size:inherit}
+.sale-workspace .sales-matrix.mz .sale-customer strong{font-size:inherit;font-weight:600}
+.sale-workspace .sales-matrix.mz>table>thead>tr>.matrix-product{white-space:normal;overflow-wrap:anywhere;font-weight:700;line-height:1.2}
+.sale-workspace .sales-matrix.mz .matrix-product small{font-size:max(11px,calc(12px * var(--mz,1)))}
+.sale-workspace .sales-matrix.mz .matrix-quantity{font-weight:700}
+.sale-workspace .sales-matrix.mz>table>tbody>.sale-day>td{font-size:max(13px,calc(14px * var(--mz,1)))!important}
