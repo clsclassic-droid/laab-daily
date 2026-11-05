@@ -559,3 +559,6 @@ header{padding-top:8px;padding-bottom:8px}
 /* คอลัมน์ค่าส่ง (5 พ.ย. 69) อยู่ท้ายตาราง */
 .daily-sales th.ship-cell,.daily-sales td.ship-cell{text-align:right!important;font-variant-numeric:tabular-nums;color:#58697a}
 @media(max-width:600px){.single-line-sales .ship-cell{display:none!important}.five-column-sales tfoot td:nth-child(4){display:block;grid-column:3;grid-row:2}}
+
+/* เมนูด้านบน: ปุ่มที่เลือกอยู่เป็นสีแดงแล้ว ไม่ต้องมีกรอบซ้อน (5 พ.ย. 69) */
+.navigation button[data-state=active]:focus-visible,.navigation [role=tab][data-state=active]:focus-visible{outline:none;box-shadow:none}
