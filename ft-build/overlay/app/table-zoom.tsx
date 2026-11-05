@@ -9,5 +9,5 @@ export function useTableZoom(){
  return {zoom,setZoom,ref:setEl,style:{'--mz':String(zoom)} as CSSProperties};
 }
 export function ZoomControls({zoom,setZoom}:{zoom:number;setZoom:(f:(n:number)=>number)=>void}){
- return <div className="zoom-controls" role="group" aria-label="ขนาดตาราง"><button type="button" aria-label="ย่อตาราง" onClick={()=>setZoom(n=>clampTableZoom(n-.1))}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" aria-label="ขยายตาราง" onClick={()=>setZoom(n=>clampTableZoom(n+.1))}>+</button><button type="button" onClick={()=>setZoom(()=>1)}>คืนขนาด</button></div>;
+ return <div className="text-zoom" role="group" aria-label="ขนาดตาราง"><button type="button" aria-label="ย่อตาราง" onClick={()=>setZoom(n=>clampTableZoom(n-.1))}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" aria-label="ขยายตาราง" onClick={()=>setZoom(n=>clampTableZoom(n+.1))}>+</button><button type="button" onClick={()=>setZoom(()=>1)}>คืนขนาด</button></div>;
 }

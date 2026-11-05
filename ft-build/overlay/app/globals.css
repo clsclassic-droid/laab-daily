@@ -540,7 +540,7 @@ header{padding-top:8px;padding-bottom:8px}
 /* Toolbar groups keep their intrinsic width and wrap instead of overlapping. */
 .sale-workspace .sale-list-heading{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;gap:8px 12px}
 .sale-workspace .sale-list-heading>h2,.sale-workspace .sale-list-heading>button,.sale-workspace .sale-list-heading>.sale-draft-badge{flex:0 0 auto}
-.sale-workspace .sale-list-heading>.matrix-zoom-controls{flex:0 0 auto!important;min-width:max-content;width:auto;flex-wrap:nowrap}
+.sale-workspace .sale-list-heading>.matrix-zoom-controls,.sale-workspace .sale-list-heading>.text-zoom{flex:0 0 auto!important;min-width:max-content;width:auto;flex-wrap:nowrap}
 .sale-workspace .sale-list-heading>.sale-batch-result{flex:0 1 auto;min-width:0;white-space:normal}
 .sale-workspace .sale-list-heading>.sale-header-search{flex:1 1 300px;min-width:min(100%,240px);margin-left:auto}
 .sale-workspace .sales-matrix>table>thead>tr>.matrix-product{overflow-wrap:normal;word-break:normal}
@@ -596,3 +596,10 @@ header{padding-top:8px;padding-bottom:8px}
 .mzt.mzt .entrygrid thead tr:first-child th{height:2.9em!important}
 .mzt.mzt .entrygrid thead tr:nth-child(2) th{top:2.9em!important}
 .mzt.mzt .entrygrid .statuscell button{min-height:0;padding:2px 8px}
+
+/* ปุ่มย่อขยายแบบตัวหนังสือ (บอสเลือก) — พื้นที่กดอย่างน้อย 44px แต่หน้าตาเป็นตัวหนังสือ */
+.text-zoom{display:inline-flex;align-items:center;gap:0;flex:0 0 auto;flex-wrap:nowrap;min-width:max-content}
+.text-zoom button{background:transparent!important;border:0;box-shadow:none;border-radius:6px;padding:0 8px;min-height:44px;min-width:44px;color:inherit;font:inherit;white-space:nowrap}
+.text-zoom button:active{background:#edf1f5!important}
+.text-zoom span{min-width:3em;text-align:center;font-variant-numeric:tabular-nums}
+.dash-zoom-row{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin:12px 0 0}.dash-zoom-row .muted{margin:0}
