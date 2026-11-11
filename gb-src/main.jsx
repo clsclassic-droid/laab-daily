@@ -8,6 +8,9 @@ import { supabase } from "../supabaseClient.js";
 const SHOPS = { GBS: { name: "ซัน", loc: "gbs", bank: false }, GBK: { name: "เกด", loc: "gbk", bank: true } };
 const LOC_NAME = { factory: "โรงงาน", gbs: "ซัน", gbk: "เกด", main: "คลังหลัก", ns: "ร้านก๋วยเตี๋ยว", ls: "ร้านลาบ" };
 const MOVE_LOCS = ["factory", "gbs", "gbk", "ns"]; // ร้านก๋วยเตี๋ยว = ย้ายไปเก็บไว้เฉยๆ ไม่มีเงิน
+// ชื่อลูกค้าที่หน้าโรงลูกชิ้น ↔ ที่ตั้ง (ร้านก๋วยเตี๋ยว = ลูกค้า "ร้านก๋วยเตี๋ยวดาวเทียม")
+const LOC_CUST = { gbs: "ซัน", gbk: "เกด", ns: "ร้านก๋วยเตี๋ยวดาวเทียม" };
+const CUST_LOC = Object.fromEntries(Object.entries(LOC_CUST).map(([l, c]) => [c, l]));
 const A = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const fmt = (n, d = 0) => (n == null ? "" : Number(n).toLocaleString("th-TH", { minimumFractionDigits: d, maximumFractionDigits: 2 }));
@@ -50,24 +53,37 @@ async function loadDay(date) {
     supabase.from("profiles").select("id,display_name").then(chk),
     // บิลโรงลูกชิ้นของซัน/เกดวันนี้ (เบิก = บวก · คืน = ติดลบ) — บิลนี้คือข้อมูลจริงของลูกชิ้นแพ็ค/น้ำจิ้ม
     supabase.from("ft_sales").select("id,legacy_id,created_order,created_at,created_by,note,ft_customers!inner(name),ft_sale_items(qty,product_id)")
-      .eq("sale_date", date).eq("is_voided", false).in("ft_customers.name", Object.values(SHOPS).map((s) => s.name)).then(chk),
+      .eq("sale_date", date).eq("is_voided", false).in("ft_customers.name", Object.values(LOC_CUST)).then(chk),
     supabase.from("ft_products").select("id,legacy_key,name").then(chk),
   ]);
   // การย้ายที่ผูกกับบิลโรงลูกชิ้นที่ถูกยกเลิก (เช่น ยอดไม้จากบิลเสียบที่ยกเลิก) ไม่นับ
   const moves = rawMoves.filter((m) => !m.ft_sales?.is_voided);
   const ftUnmapped = [];
+  // บิลคู่ gbx-<รหัส>-s/-n = ซัน/เกด ↔ ร้านก๋วยเตี๋ยว (ฝั่งติดลบ = ต้นทาง ฝั่งบวก = ปลายทาง) รวมเป็นการย้ายเดียว
+  const single = [], pairs = {};
   for (const b of ftBills) {
-    const shop = Object.values(SHOPS).find((s) => s.name === b.ft_customers.name);
+    const loc = CUST_LOC[b.ft_customers.name], lid = String(b.legacy_id || "");
+    if (loc === "ns" && !lid.startsWith("gb")) continue; // บิลร้านก๋วยเตี๋ยวที่ลงจากหน้าโรงลูกชิ้น = ร้านใช้จริง ไม่นับที่นี่
     const when = new Date(Number(b.created_order) || Date.parse(b.created_at)).toISOString();
+    const px = lid.match(/^gbx-(.+)-[sn]$/);
     b.ft_sale_items.forEach((li, n) => {
       const q = A(li.qty); if (!q) return;
       const it = items.find((i) => i.ft_product_id === li.product_id);
-      if (!it) { ftUnmapped.push(b); return; }
-      moves.push({ id: `ft:${b.id}:${n}`, ftBill: b, move_date: date, item_id: it.id, qty: Math.abs(q),
-        kind: q > 0 ? "draw" : "return", from_loc: q > 0 ? "factory" : shop.loc, to_loc: q > 0 ? shop.loc : "factory",
-        source: String(b.legacy_id || "").startsWith("gb-") ? "gb-move" : "ft", created_at: when, created_by: b.created_by });
+      if (!it) { if (loc !== "ns") ftUnmapped.push(b); return; }
+      const x = { b, n, loc, q, it, when, lid };
+      if (px) (pairs[px[1] + "|" + it.id] ||= []).push(x); else single.push(x);
     });
   }
+  for (const [k, xs] of Object.entries(pairs)) {
+    const from = xs.find((x) => x.q < 0), to = xs.find((x) => x.q > 0);
+    if (xs.length === 2 && from && to) moves.push({ id: "ftx:" + k, ftBills: xs.map((x) => x.b), move_date: date, item_id: from.it.id, qty: Math.abs(to.q),
+      kind: "transfer", from_loc: from.loc, to_loc: to.loc, source: "gb-move", created_at: from.when, created_by: from.b.created_by });
+    else single.push(...xs); // คู่ไม่ครบ (อีกใบถูกยกเลิก) → นับเป็นเบิก/คืนโรงงานตามบิลที่เหลือ
+  }
+  for (const { b, n, loc, q, it, when, lid } of single)
+    moves.push({ id: `ft:${b.id}:${n}`, ftBills: [b], move_date: date, item_id: it.id, qty: Math.abs(q),
+      kind: q > 0 ? "draw" : "return", from_loc: q > 0 ? "factory" : loc, to_loc: q > 0 ? loc : "factory",
+      source: lid.startsWith("gb") ? "gb-move" : "ft", created_at: when, created_by: b.created_by });
   moves.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
   // ต้นงวดของที่ยกยอดข้ามวัน = นับปิดร้านครั้งล่าสุดก่อนวันนี้
   const prev = {};
@@ -176,46 +192,50 @@ const Num = ({ value, onChange, ph, w }) => (
    คืนค่า true ถ้ามีบิลโรงลูกชิ้น */
 async function recordMoves(day, items, from, to, qty, note = "", amt = "") {
   const isNew = from === "new";
-  const kind = isNew ? "new" : to === "factory" ? "return" : from === "factory" ? "draw" : "transfer";
+  const use = to === "use"; // ร้านก๋วยเตี๋ยวใช้เอง
+  const kind = isNew ? "new" : use ? "use" : to === "factory" ? "return" : from === "factory" ? "draw" : "transfer";
+  if (use && from !== "ns") throw new Error("\"ใช้เอง\" ใช้ได้กับร้านก๋วยเตี๋ยวเท่านั้น");
   const rows = items.filter((i) => A(qty[i.id]) > 0).map((i) => ({
     move_date: day.date, item_id: i.id, qty: A(qty[i.id]),
     kind: isNew ? (i.is_produced ? "produce" : "purchase") : kind,
-    from_loc: isNew ? null : from, to_loc: to, source: "gb-move", note: note || null,
+    from_loc: isNew ? null : from, to_loc: use ? null : to, source: "gb-move", note: note || null,
     amount: isNew && !i.is_produced && A(amt) ? A(amt) : null, paid_by_entity: isNew && !i.is_produced ? "NS" : null,
   }));
   if (!rows.length) throw new Error("ยังไม่ได้ใส่จำนวน");
   if (!isNew && from === to) throw new Error("ต้นทางกับปลายทางต้องไม่ใช่ที่เดียวกัน");
   const itemById = Object.fromEntries(items.map((i) => [i.id, i]));
-  const ftRows = rows.filter((r) => itemById[r.item_id].ft_product_id && (r.kind === "draw" || r.kind === "return"));
-  // ร้านก๋วยเตี๋ยว ↔ โรงงาน ของลูกชิ้นแพ็ค/น้ำจิ้ม ยังไม่รองรับ (ต้องตกลงเรื่องบิลโรงลูกชิ้นก่อน)
-  if (ftRows.length && (from === "ns" || to === "ns"))
-    throw new Error("ลูกชิ้นแพ็ค/น้ำจิ้ม ระหว่างร้านก๋วยเตี๋ยวกับโรงงาน ยังลงจากหน้านี้ไม่ได้");
+  // ลูกชิ้นแพ็ค/น้ำจิ้ม: เบิก/คืนโรงงาน และ ซัน/เกด ↔ ร้านก๋วยเตี๋ยว = บิลโรงลูกชิ้น (ข้อมูลจริงที่เดียว)
+  const viaFt = kind === "draw" || kind === "return" || (kind === "transfer" && (from === "ns" || to === "ns"));
+  const ftRows = viaFt ? rows.filter((r) => itemById[r.item_id].ft_product_id) : [];
   const invRows = rows.filter((r) => !ftRows.includes(r));
   const stamp = Date.now();
   for (const r of invRows) r.created_at = new Date(stamp).toISOString();
-  let billId = null;
+  const done = []; // บิลที่สร้างแล้ว (ยกเลิกคืนถ้าขั้นต่อไปพลาด)
+  const undo = async () => { for (const id of done) await supabase.rpc("ft_save_record", { r: { id, action: "cancelSale", confirm: id, reason: "บันทึกย้ายของไม่สำเร็จ ยกเลิกอัตโนมัติ" } }); };
+  try {
     if (ftRows.length) {
-      const shop = LOC_NAME[ftRows[0].kind === "draw" ? to : from];
       const keys = Object.fromEntries(day.ftProducts.map((p) => [p.id, p.legacy_key]));
-      billId = "gb-" + crypto.randomUUID();
-      const recItems = ftRows.map((r) => {
+      const line = (r, sign) => {
         const it = itemById[r.item_id];
-        return { product: keys[it.ft_product_id], quantity: r.kind === "draw" ? r.qty : -r.qty, input: 0, mode: it.unit === "กก." ? "batch" : "piece" };
-      });
-      if (recItems.some((x) => !x.product)) throw new Error("ไม่พบสินค้าที่หน้าโรงลูกชิ้น");
-      const { error } = await supabase.rpc("ft_save_record", { r: {
-        id: billId, kind: "sale", date: day.date, customer: shop, items: recItems, total: 0, paid: 0,
-        priceGroup: "wholesale", unitPrices: Object.fromEntries(recItems.map((x) => [x.product, 0])),
-        note: ["ลงจากหน้าลูกชิ้นปิ้ง", note].filter(Boolean).join(" · "), createdOrder: stamp } });
-      if (error) throw error;
-    }
-    if (invRows.length) {
-      const { error } = await supabase.from("inv_moves").insert(invRows);
-      if (error) {
-        if (billId) await supabase.rpc("ft_save_record", { r: { id: billId, action: "cancelSale", confirm: billId, reason: "บันทึกย้ายของไม่สำเร็จ ยกเลิกอัตโนมัติ" } });
-        throw error;
+        return { product: keys[it.ft_product_id], quantity: sign * r.qty, input: 0, mode: it.unit === "กก." ? "batch" : "piece" };
+      };
+      // เบิก = บิลบวกให้ปลายทาง · คืน = บิลติดลบของต้นทาง · ย้ายกับร้านก๋วยเตี๋ยว = บิลคู่ (ต้นทางติดลบ ปลายทางบวก)
+      const u = crypto.randomUUID();
+      const bills = kind === "draw" ? [["gb-" + u, to, 1]] : kind === "return" ? [["gb-" + u, from, -1]]
+        : [[`gbx-${u}-${from === "ns" ? "n" : "s"}`, from, -1], [`gbx-${u}-${to === "ns" ? "n" : "s"}`, to, 1]];
+      for (const [id, loc, sign] of bills) {
+        const recItems = ftRows.map((r) => line(r, sign));
+        if (recItems.some((x) => !x.product)) throw new Error("ไม่พบสินค้าที่หน้าโรงลูกชิ้น");
+        const { error } = await supabase.rpc("ft_save_record", { r: {
+          id, kind: "sale", date: day.date, customer: LOC_CUST[loc], items: recItems, total: 0, paid: 0,
+          priceGroup: "wholesale", unitPrices: Object.fromEntries(recItems.map((x) => [x.product, 0])),
+          note: ["ลงจากหน้าลูกชิ้นปิ้ง", kind === "transfer" ? `${LOC_NAME[from]} → ${LOC_NAME[to]}` : "", note].filter(Boolean).join(" · "), createdOrder: stamp } });
+        if (error) throw error;
+        done.push(id);
       }
     }
+    if (invRows.length) chk(await supabase.from("inv_moves").insert(invRows));
+  } catch (e) { await undo(); throw e; }
   return ftRows.length > 0;
 }
 
@@ -225,6 +245,7 @@ function MovesTab({ day, reload, setMsg }) {
   const [qty, setQty] = useState({}), [amt, setAmt] = useState(""), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
   const items = day.items.filter((i) => i.is_active && ["ลูกชิ้นปิ้ง", "ลูกชิ้นแพ็ค", "น้ำจิ้ม"].includes(i.category));
   const isNew = from === "new";
+  useEffect(() => { if (to === "use" && from !== "ns") setTo("factory"); }, [from]);
   const sameDay = !isNew && from !== to && day.moves.some((m) => m.from_loc === from && m.to_loc === to);
   const save = async () => {
     setBusy(true);
@@ -237,7 +258,7 @@ function MovesTab({ day, reload, setMsg }) {
   };
   const del = async (g) => {
     const bills = [...new Map(g.bills.map((b) => [b.id, b])).values()];
-    const fromFt = bills.some((b) => !String(b.legacy_id || "").startsWith("gb-"));
+    const fromFt = bills.some((b) => !String(b.legacy_id || "").startsWith("gb"));
     if (!confirm(bills.length ? `ลบรายการย้ายนี้? บิลที่หน้าโรงลูกชิ้น${fromFt ? " (ลงจากหน้าโรงลูกชิ้น)" : ""} จะถูกยกเลิกด้วย` : "ลบรายการย้ายนี้?")) return;
     try {
       if (g.ids.length) chk(await supabase.from("inv_moves").delete().in("id", g.ids));
@@ -255,7 +276,7 @@ function MovesTab({ day, reload, setMsg }) {
     const k = m.created_at.slice(0, 19) + m.from_loc + m.to_loc;
     let g = groups.find((x) => x.k === k);
     if (!g) groups.push(g = { k, m, ids: [], bills: [], q: {}, ft: false });
-    if (m.ftBill) { g.bills.push(m.ftBill); if (m.source === "ft") g.ft = true; } else g.ids.push(m.id);
+    if (m.ftBills) { g.bills.push(...m.ftBills); if (m.source === "ft") g.ft = true; } else g.ids.push(m.id);
     g.q[m.item_id] = r2((g.q[m.item_id] || 0) + A(m.qty));
   }
   const tot = (loc, dir) => Object.fromEntries(items.map((i) => [i.id, r2(day.moves.filter((m) => m.item_id === i.id && (dir === "in" ? m.to_loc : m.from_loc) === loc).reduce((t, m) => t + A(m.qty), 0))]));
@@ -269,7 +290,8 @@ function MovesTab({ day, reload, setMsg }) {
             <option value="new">เข้าใหม่ (ผลิต/ซื้อเข้า)</option></select></label>
           <span className="arrow">→</span>
           <label>ไป<select value={to} onChange={(e) => setTo(e.target.value)}>
-            {MOVE_LOCS.map((l) => <option key={l} value={l}>{LOC_NAME[l]}</option>)}</select></label>
+            {MOVE_LOCS.map((l) => <option key={l} value={l}>{LOC_NAME[l]}</option>)}
+            {from === "ns" && <option value="use">ร้านก๋วยเตี๋ยวใช้เอง</option>}</select></label>
         </div>
         {sameDay && <p className="warn">วันนี้มีรายการ {LOC_NAME[from]} → {LOC_NAME[to]} แล้ว ถ้าเป็นรอบใหม่บันทึกต่อได้เลย (ระวังลงซ้ำ)</p>}
         <table className="grid"><tbody>
@@ -288,7 +310,7 @@ function MovesTab({ day, reload, setMsg }) {
         {!groups.length && <p className="muted">ยังไม่มี</p>}
         <div className="scroll"><table className="grid"><thead><tr><th>เวลา</th><th>จาก → ไป</th>{items.map((i) => <th key={i.id}>{i.name}</th>)}<th>คนลง</th><th></th></tr></thead>
           <tbody>{groups.map((g) => (
-            <tr key={g.k}><td>{timeTH(g.m.created_at)}</td><td className="nw">{g.m.from_loc ? LOC_NAME[g.m.from_loc] : "เข้าใหม่"} → {LOC_NAME[g.m.to_loc] || "-"}{g.ft && <span className="tag">หน้าโรงลูกชิ้น</span>}{g.m.kind === "produce" && g.m.ft_sale_id && <span className="tag">เสียบไม้</span>}</td>
+            <tr key={g.k}><td>{timeTH(g.m.created_at)}</td><td className="nw">{g.m.from_loc ? LOC_NAME[g.m.from_loc] : "เข้าใหม่"} → {g.m.kind === "use" ? "ใช้เอง" : LOC_NAME[g.m.to_loc] || "-"}{g.ft && <span className="tag">หน้าโรงลูกชิ้น</span>}{g.m.kind === "produce" && g.m.ft_sale_id && <span className="tag">เสียบไม้</span>}</td>
               {items.map((i) => <td key={i.id} className="r">{g.q[i.id] ? fmt(g.q[i.id]) : ""}</td>)}
               <td className="muted">{day.who[g.m.created_by] || ""}</td><td><button className="link" onClick={() => del(g)}>ลบ</button></td></tr>
           ))}</tbody></table></div>
