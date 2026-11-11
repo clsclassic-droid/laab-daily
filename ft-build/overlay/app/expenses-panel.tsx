@@ -4,6 +4,7 @@ import {toast} from 'sonner';
 import {emptyExpenses,validateExpenses,rateAt,employeeBalance,expenseTotals,materialDue,cents,materialAccounts,guessMaterialAccount,materialAccountName,type Expenses,type Employee,type Rate} from '@/lib/expenses';
 import LaborDay from './labor-day';
 import {savedFeedback} from '@/lib/save-feedback';
+import {supabase} from '@/src/supabase-adapter';
 const fmt=(n:number)=>n.toLocaleString('th-TH',{maximumFractionDigits:2});
 const dayText=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'});
 const types={daily:'รายวัน',monthly:'รายเดือน'};
@@ -11,6 +12,20 @@ const statusNames={unset:'ยังไม่ลงเวลา',full:'เต็�
 const wageNames={salary:'เงินเดือน',bonus:'โบนัส',overtime:'ค่าล่วงเวลา',deduction:'รายการหัก'};
 const freshId=()=>crypto.randomUUID();
 type Submit=(action:string,values:Record<string,unknown>)=>Promise<boolean>;
+// รายการจากหน้าซื้อของ/คลังกลาง (ใบบัญชี wh_* ของ FT ที่ลงไว้แล้ว) — ดูอย่างเดียว แก้/ลบที่หน้าคลังกลาง
+// wh_purchase = ซื้อให้โรงลูกชิ้น · wh_draw = เบิก/คืนคลังกลาง · wh_pay = เงินสด FT จ่ายแทนของคลังกลาง/ร้านอื่น
+const WH_SOURCES=['wh_purchase','wh_draw','wh_pay'],WH_LINK='../wh-test/',whKind:Record<string,string>={wh_purchase:'ซื้อให้โรงลูกชิ้น',wh_draw:'เบิก/คืนคลัง',wh_pay:'จ่ายแทน'};
+type WhRow={id:string;date:string;no:string;title:string;type:string;cost:number;vat:number;cash:number};
+const monthLast=(m:string)=>new Date(Date.UTC(Number(m.slice(0,4)),Number(m.slice(5,7)),0)).toISOString().slice(0,10);
+// ดึงทีละ 1,000 ใบ แล้วนับเทียบจำนวนจริง (Supabase ตัดเหลือ 1,000 แถวโดยไม่เตือน)
+async function fetchWhMonth(month:string):Promise<WhRow[]>{
+ const q=(sel:string,opt?:any)=>supabase.from('journal_entries').select(sel,opt).eq('entity','FT').in('source_type',WH_SOURCES).gte('entry_date',month+'-01').lte('entry_date',monthLast(month));
+ const {count,error:ce}=await q('id',{count:'exact',head:true});if(ce)throw ce;if(typeof count!=='number')throw Error('นับรายการคลังกลางไม่ได้');
+ const out:any[]=[];for(let from=0;from<count;from+=1000){const {data,error}=await q('id,entry_date,voucher_no,description,source_type,journal_lines(account_code,debit,credit)').order('entry_date').order('voucher_no').order('id').range(from,from+999);if(error)throw error;out.push(...(data||[]));}
+ if(out.length!==count)throw Error(`โหลดรายการคลังกลางไม่ครบ (${out.length}/${count})`);
+ const net=(L:any[],f:(c:string)=>boolean)=>cents(L.filter(l=>f(l.account_code)).reduce((t,l)=>t+Number(l.debit)-Number(l.credit),0));
+ return out.map(e=>{const L=e.journal_lines||[];return {id:e.id,date:e.entry_date,no:e.voucher_no,title:e.description,type:e.source_type,cost:e.source_type==='wh_pay'?0:net(L,c=>/^[56]/.test(c)),vat:net(L,c=>c==='1150-FT'),cash:-net(L,c=>c==='1010-FT')};});
+}
 export default function ExpensesPanel({today,active,onBusy}:{today:string;active:boolean;onBusy?:(busy:boolean)=>void}){
  const [state,setState]=useState<Expenses>(emptyExpenses),[loaded,setLoaded]=useState(false),[loadError,setLoadError]=useState(''),[saving,setSaving]=useState(false),[loading,setLoading]=useState(false),[month,setMonth]=useState(today.slice(0,7)),[section,setSection]=useState('materials'),[laborTab,setLaborTab]=useState('attendance');
  const busyRef=useRef(false),stateRef=useRef(state),pending=useRef<{key:string;operationId:string}|null>(null),loadGeneration=useRef(0);stateRef.current=state;
@@ -19,21 +34,30 @@ export default function ExpensesPanel({today,active,onBusy}:{today:string;active
  useEffect(()=>{if(!formDirty)return;const handler=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''};window.addEventListener('beforeunload',handler);return()=>window.removeEventListener('beforeunload',handler)},[formDirty]);
  async function load(){if(busyRef.current)return;const generation=++loadGeneration.current;setLoading(true);setLoadError('');const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);try{const response=await fetch('/api/expenses',{signal:controller.signal});const data:any=await response.json();if(!response.ok)throw Error(data.error);if(generation!==loadGeneration.current)return;validateExpenses(data);setState(data);setLoaded(true);}catch{if(generation===loadGeneration.current)setLoadError('โหลดรายจ่ายไม่ได้ ข้อมูลที่กรอกยังอยู่ กรุณาลองอีกครั้ง');}finally{clearTimeout(timer);if(generation===loadGeneration.current)setLoading(false)}}
  useEffect(()=>{if(active)void load()},[active]);
+ const [wh,setWh]=useState<WhRow[]|null>(null),[whError,setWhError]=useState('');
+ useEffect(()=>{if(!active)return;let live=true;setWh(null);setWhError('');fetchWhMonth(month).then(r=>{if(live)setWh(r)},()=>{if(live)setWhError('โหลดรายการจากคลังกลางไม่ได้ กดโหลดข้อมูลล่าสุดอีกครั้ง')});return()=>{live=false}},[active,month,state]);
+ const whCost=wh?cents(wh.reduce((t,w)=>t+w.cost,0)):0;
  const submit:Submit=async(action,values)=>{if(busyRef.current||!loaded||loading)return false;const form=submittedForm.current;submittedForm.current=null;busyRef.current=true;setSaving(true);loadGeneration.current++;const key=JSON.stringify({action,...values});if(pending.current?.key!==key)pending.current={key,operationId:freshId()};const operationId=pending.current.operationId;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);try{const response=await fetch('/api/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...values,version:stateRef.current.version,operationId}),signal:controller.signal});const data:any=await response.json();if(!response.ok)throw Error(data.error);validateExpenses(data);setState(data);pending.current=null;savedFeedback();if(form)dirtyForms.current.delete(form);setFormDirty(dirtyForms.current.size>0);return true;}catch(e){toast.error(controller.signal.aborted?'รอนานเกินไป ยังไม่ยืนยันการบันทึก ข้อมูลยังอยู่ กดลองอีกครั้งได้':(e as Error).message);return false;}finally{clearTimeout(timer);busyRef.current=false;setSaving(false)}};
  useEffect(()=>{onBusy?.(saving);return()=>onBusy?.(false)},[saving,onBusy]);
  const busy=saving||loading||!loaded,totals=expenseTotals(state,month);
  return <section className="panel expense-panel"><div className="expense-heading"><h2>รายจ่าย</h2><label>เดือนที่ดู<input type="month" value={month} onChange={e=>{if(e.target.value)setMonth(e.target.value)}}/></label><button type="button" onClick={()=>void load()} disabled={loading||saving}>โหลดข้อมูลล่าสุด</button></div>
  <p className="muted expense-basis">ยอดรายจ่ายตามวันที่จ่ายจริง · ยอดซื้อและค่าแรงสะสมไม่บวกซ้ำ</p>
- <div className="expense-metrics"><article><small>รายจ่ายรวม</small><strong>{loaded?fmt(totals.total):'—'}</strong></article><article><small>ค่าวัตถุดิบที่จ่าย</small><strong>{loaded?fmt(totals.raw):'—'}</strong></article><article><small>ค่าแรงที่จ่าย / เบิก</small><strong>{loaded?fmt(totals.labor):'—'}</strong></article></div>
+ <div className="expense-metrics"><article><small>รายจ่ายรวม</small><strong>{loaded?fmt(totals.total):'—'}</strong></article><article><small>ค่าวัตถุดิบที่จ่าย</small><strong>{loaded?fmt(totals.raw):'—'}</strong></article><article><small>ค่าแรงที่จ่าย / เบิก</small><strong>{loaded?fmt(totals.labor):'—'}</strong></article><article><small>จากหน้าซื้อของ / คลังกลาง (ไม่รวมในรายจ่ายรวม)</small><strong>{wh?fmt(whCost):'—'}</strong></article></div>
  {loading&&<p role="status">กำลังโหลดรายจ่าย…</p>}{saving&&<p role="status">กำลังบันทึก · รอคำยืนยันก่อนปิดหน้า</p>}{loadError&&<p role="alert" className="save-failure">{loadError}</p>}
  <div className="expense-tabs" role="group" aria-label="หมวดรายจ่าย"><button aria-pressed={section==='materials'} onClick={()=>setSection('materials')}>ค่าวัตถุดิบ</button><button aria-pressed={section==='labor'} onClick={()=>setSection('labor')}>ค่าแรง</button></div>
  <div onResetCapture={e=>{dirtyForms.current.delete(e.target as HTMLFormElement);setFormDirty(dirtyForms.current.size>0)}} onSubmitCapture={e=>{submittedForm.current=e.target as HTMLFormElement}} onChangeCapture={e=>{const form=(e.target as HTMLElement).closest('form');if(form){dirtyForms.current.add(form);setFormDirty(true)}}}>
- <div hidden={section!=='materials'}><Materials state={state} month={month} today={today} busy={busy} submit={submit}/></div>
+ <div hidden={section!=='materials'}><WhTable rows={wh} error={whError}/><Materials state={state} month={month} today={today} busy={busy} submit={submit}/></div>
  <div hidden={section!=='labor'}><div className="expense-tabs" role="group" aria-label="จัดการค่าแรง">{[['attendance','ลงเวลา / จ่าย / เบิก'],['employees','พนักงานและอัตรา'],['history','ประวัติรายคน']].map(([key,label])=><button key={key} aria-pressed={laborTab===key} onClick={()=>setLaborTab(key)}>{label}</button>)}</div>
  <div hidden={laborTab!=='attendance'}><LaborDay state={state} today={today} busy={busy} submit={submit}/><WageForm state={state} today={today} busy={busy} submit={submit}/></div>
  <div hidden={laborTab!=='employees'}><Employees state={state} today={today} busy={busy} submit={submit}/></div>
  <div hidden={laborTab!=='history'}><EmployeeHistory state={state} today={today} busy={busy} submit={submit}/></div></div></div>
  </section>;
+}
+function WhTable({rows,error}:{rows:WhRow[]|null;error:string}){
+ if(error)return <p role="alert" className="save-failure">{error}</p>;
+ if(!rows||!rows.length)return null;
+ const T=rows.reduce((t,w)=>({cost:t.cost+w.cost,vat:t.vat+w.vat,cash:t.cash+w.cash}),{cost:0,vat:0,cash:0});
+ return <><h3>จากหน้าซื้อของ / คลังกลาง (ดูอย่างเดียว)</h3><div className="expense-table"><table><thead><tr><th>วันที่</th><th>รายการ</th><th>ต้นทุน</th><th>VAT ซื้อ</th><th>จ่ายจากเงินสด FT</th></tr></thead><tbody>{rows.map(w=><tr key={w.id}><td>{dayText(w.date)}</td><td>{w.title}<small>{whKind[w.type]} · {w.no}</small></td><td>{w.cost?fmt(w.cost):''}</td><td>{w.vat?fmt(w.vat):''}</td><td>{w.cash?fmt(w.cash):''}</td></tr>)}</tbody><tfoot><tr><td colSpan={2}>รวม</td><td>{fmt(cents(T.cost))}</td><td>{fmt(cents(T.vat))}</td><td>{fmt(cents(T.cash))}</td></tr></tfoot></table></div><p className="muted">ลงบัญชีให้แล้วที่หน้าซื้อของ · แก้/ลบได้ที่ <a href={WH_LINK}>หน้าคลังกลาง</a> เท่านั้น · ยอดนี้ไม่รวมใน "รายจ่ายรวม" ด้านบน (ช่องนั้นนับเงินที่จ่ายจากหน้านี้)</p></>;
 }
 function CancelEntry({collection,id,voided,busy,submit}:{collection:string;id:string;voided?:boolean;busy:boolean;submit:Submit}){const [confirm,setConfirm]=useState(false);return confirm?<span className="expense-confirm"><span>{voided?'คืนรายการนี้?':'ยืนยันยกเลิกรายการนี้?'}</span><button disabled={busy} onClick={async()=>{if(await submit('void',{collection,id,voided:!voided}))setConfirm(false)}}>ยืนยัน</button><button disabled={busy} onClick={()=>setConfirm(false)}>กลับ</button></span>:<button className="expense-link" disabled={busy} onClick={()=>setConfirm(true)}>{voided?'คืนรายการ':'ยกเลิก'}</button>}
 function Materials({state,month,today,busy,submit}:{state:Expenses;month:string;today:string;busy:boolean;submit:Submit}){

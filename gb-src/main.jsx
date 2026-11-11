@@ -6,6 +6,8 @@ import { createRoot } from "react-dom/client";
 import { supabase } from "../supabaseClient.js";
 
 const SHOPS = { GBS: { name: "ซัน", loc: "gbs", bank: false }, GBK: { name: "เกด", loc: "gbk", bank: true } };
+const WH_SOURCES = ["wh_purchase", "wh_draw", "wh_pay"];
+const WH_LINK = "../wh-test/"; // หน้าซื้อของ/คลังกลาง
 const LOC_NAME = { factory: "โรงงาน", gbs: "ซัน", gbk: "เกด", main: "คลังหลัก", ns: "ร้านก๋วยเตี๋ยว", ls: "ร้านลาบ" };
 const MOVE_LOCS = ["factory", "gbs", "gbk", "ns"]; // ร้านก๋วยเตี๋ยว = ย้ายไปเก็บไว้เฉยๆ ไม่มีเงิน
 // ชื่อลูกค้าที่หน้าโรงลูกชิ้น ↔ ที่ตั้ง (ร้านก๋วยเตี๋ยว = ลูกค้า "ร้านก๋วยเตี๋ยวดาวเทียม")
@@ -39,7 +41,7 @@ const chk = ({ data, error }) => { if (error) throw error; return data; };
 
 /* ── โหลดข้อมูลของวันที่เลือก (ทุกร้านพร้อมกัน) ── */
 async function loadDay(date) {
-  const [items, saleItems, rawMoves, counts, prevCounts, sales, cash, expItems, purchases, profiles, ftBills, ftProducts] = await Promise.all([
+  const [items, saleItems, rawMoves, counts, prevCounts, sales, cash, expItems, purchases, profiles, ftBills, ftProducts, whEntries] = await Promise.all([
     supabase.from("inv_items").select("*").order("sort_order").then(chk),
     supabase.from("inv_sale_items").select("*").in("entity", ["GBS", "GBK"]).order("sort_order").then(chk),
     supabase.from("inv_moves").select("*, ft_sales(is_voided)").eq("move_date", date).order("created_at").then(chk),
@@ -55,6 +57,9 @@ async function loadDay(date) {
     supabase.from("ft_sales").select("id,legacy_id,created_order,created_at,created_by,note,ft_customers!inner(name),ft_sale_items(qty,product_id)")
       .eq("sale_date", date).eq("is_voided", false).in("ft_customers.name", Object.values(LOC_CUST)).then(chk),
     supabase.from("ft_products").select("id,legacy_key,name").then(chk),
+    // รายการจากหน้าซื้อของ/คลังกลาง (ลงบัญชีที่หน้าคลังแล้ว) — ดูอย่างเดียว
+    supabase.from("journal_entries").select("id,entity,voucher_no,description,source_type,journal_lines(account_code,debit,credit)")
+      .in("entity", ["GBS", "GBK"]).eq("entry_date", date).in("source_type", WH_SOURCES).order("voucher_no").then(chk),
   ]);
   // การย้ายที่ผูกกับบิลโรงลูกชิ้นที่ถูกยกเลิก (เช่น ยอดไม้จากบิลเสียบที่ยกเลิก) ไม่นับ
   const moves = rawMoves.filter((m) => !m.ft_sales?.is_voided);
@@ -89,8 +94,22 @@ async function loadDay(date) {
   const prev = {};
   for (const c of prevCounts) { const k = c.location + "|" + c.item_id; if (!(k in prev)) prev[k] = A(c.qty); }
   const who = Object.fromEntries(profiles.map((p) => [p.id, p.display_name]));
-  return { date, items, saleItems, moves, counts, prev, sales, cash, expItems, purchases, who, ftProducts, ftUnmapped: [...new Set(ftUnmapped)] };
+  return { date, items, saleItems, moves, counts, prev, sales, cash, expItems, purchases, who, ftProducts, ftUnmapped: [...new Set(ftUnmapped)], wh: whEntries };
 }
+
+/* ── รายการคลังกลางของร้านหนึ่ง: ต้นทุน (บัญชี 5/6) · VAT ซื้อ (1150) · เงินสดที่ออกจากลิ้นชัก (1010) · โอน (1020)
+   wh_purchase = ซื้อให้ร้านนี้ · wh_draw = เบิก/คืนคลังกลาง · wh_pay = ลิ้นชักร้านนี้จ่ายแทนของคลังกลาง/ร้านอื่น */
+function whRows(day, ent) {
+  const net = (L, f) => r2(L.filter(f).reduce((t, l) => t + A(l.debit) - A(l.credit), 0));
+  return (day.wh || []).filter((e) => e.entity === ent).map((e) => {
+    const L = e.journal_lines || [];
+    return { id: e.id, no: e.voucher_no, title: e.description, type: e.source_type,
+      cost: e.source_type === "wh_pay" ? 0 : net(L, (l) => /^[56]/.test(l.account_code)),
+      vat: net(L, (l) => l.account_code === "1150-" + ent),
+      cash: -net(L, (l) => l.account_code === "1010-" + ent), bank: -net(L, (l) => l.account_code === "1020-" + ent) };
+  });
+}
+const whCash = (day, ent) => r2(whRows(day, ent).reduce((t, w) => t + w.cash, 0));
 
 /* ── คำนวณหน้าขายของร้านหนึ่ง (ใช้ทั้งหน้าจอและตอนลงบัญชี) ── */
 function computeSell(day, ent, leftDraft) {
@@ -380,7 +399,8 @@ function SellTab({ day, ent, reload, setMsg }) {
   const sell = computeSell(day, ent, left);
   const trAmt = SHOPS[ent].bank ? A(tr) : 0;
   const cashSales = r2(sell.total - trAmt);
-  const drawerOut = r2(day.purchases.filter((p) => p.entity === ent && p.payment_method_override === "cash").reduce((t, p) => t + A(p.amount), 0));
+  const whOut = whCash(day, ent); // จ่ายจากลิ้นชักที่หน้าซื้อของ
+  const drawerOut = r2(day.purchases.filter((p) => p.entity === ent && p.payment_method_override === "cash").reduce((t, p) => t + A(p.amount), 0) + whOut);
   const expected = r2(A(open) + cashSales - drawerOut);
   const variance = counted === "" ? null : r2(A(counted) - expected);
   const neg = sell.rows.some((r) => r.sold < 0);
@@ -459,7 +479,7 @@ function SellTab({ day, ent, reload, setMsg }) {
           {SHOPS[ent].bank && <tr><td>เงินโอน (เข้าบัญชีเกด)</td><td className="r">{closed ? fmt(trAmt) : <Num value={tr} onChange={setTr} ph="0" />}</td></tr>}
           <tr><td>ขายเงินสด</td><td className="r">{fmt(cashSales)}</td></tr>
           <tr><td>เงินทอนต้นวัน</td><td className="r">{closed ? fmt(A(open)) : <Num value={open} onChange={setOpen} ph="0" />}</td></tr>
-          <tr><td>จ่ายจากลิ้นชัก (เมนูรายจ่าย)</td><td className="r">{drawerOut ? "−" + fmt(drawerOut) : "0"}</td></tr>
+          <tr><td>จ่ายจากลิ้นชัก (เมนูรายจ่าย{whOut ? " + หน้าซื้อของ " + fmt(whOut) : ""})</td><td className="r">{drawerOut ? "−" + fmt(drawerOut) : "0"}</td></tr>
           <tr><td className="b">เงินสดที่ควรมี</td><td className="r b">{fmt(expected)}</td></tr>
           <tr><td>เงินสดที่นับได้</td><td className="r">{closed ? fmt(A(counted)) : <Num value={counted} onChange={setCounted} />}</td></tr>
           {variance != null && <tr><td>{variance < 0 ? "เงินขาด" : variance > 0 ? "เงินเกิน" : "ตรงพอดี"}</td><td className={"r b " + (variance < 0 ? "red" : "green")}>{fmt(variance)}</td></tr>}
@@ -520,6 +540,7 @@ function ExpenseTab({ day, ent, reload, setMsg }) {
         <p className="muted small">ค่าเช่า (รวมน้ำไฟ) ให้ลงครั้งเดียวที่วันสิ้นเดือน · "จ่ายจากลิ้นชัก" จะหักจากเงินสดที่ควรมีในเมนูขาย</p>
         <button disabled={busy} onClick={save}>บันทึกรายจ่าย</button>
       </div>
+      <WhCard day={day} ent={ent} />
       <div className="card">
         <h2>ซื้อของขายอื่น (ร้านก๋วยเตี๋ยวจ่าย)</h2>
         {!goodsItems.length && <p className="muted small">ยังไม่มีสินค้าซื้อมาขายต่อ เพิ่มได้ที่เมนูสินค้า</p>}
@@ -534,6 +555,26 @@ function ExpenseTab({ day, ent, reload, setMsg }) {
         <p className="muted small">จำนวนที่ซื้อจะขึ้นเป็น "รับเข้า" ในเมนูขายให้อัตโนมัติ</p>
       </div>
     </>
+  );
+}
+
+/* ── การ์ด "จากหน้าซื้อของ / คลังกลาง" — ดูอย่างเดียว แก้/ลบที่หน้าคลังกลางที่เดียว ── */
+function WhCard({ day, ent }) {
+  const rows = whRows(day, ent);
+  if (!rows.length) return null;
+  const T = rows.reduce((t, w) => ({ cost: t.cost + w.cost, vat: t.vat + w.vat, cash: t.cash + w.cash }), { cost: 0, vat: 0, cash: 0 });
+  const kind = { wh_purchase: "ซื้อให้ร้าน", wh_draw: "เบิก/คืนคลัง", wh_pay: "จ่ายแทน" };
+  return (
+    <div className="card">
+      <h2>จากหน้าซื้อของ / คลังกลาง <span className="tag">ดูอย่างเดียว</span></h2>
+      <div className="scroll"><table className="grid"><thead><tr><th>รายการ</th><th>ต้นทุน</th><th>VAT ซื้อ</th><th>จ่ายจากลิ้นชัก</th></tr></thead>
+        <tbody>{rows.map((w) => (
+          <tr key={w.id}><td>{w.title}<span className="muted small"> · {kind[w.type]} · {w.no}</span></td>
+            <td className="r">{w.cost ? fmt(w.cost, 2) : ""}</td><td className="r">{w.vat ? fmt(w.vat, 2) : ""}</td><td className="r">{w.cash ? fmt(w.cash, 2) : ""}</td></tr>
+        ))}</tbody>
+        <tfoot><tr><td>รวม</td><td className="r b">{fmt(r2(T.cost), 2)}</td><td className="r">{fmt(r2(T.vat), 2)}</td><td className="r">{fmt(r2(T.cash), 2)}</td></tr></tfoot></table></div>
+      <p className="muted small">ลงบัญชีให้แล้วที่หน้าซื้อของ · แก้/ลบได้ที่ <a href={WH_LINK}>หน้าคลังกลาง</a> เท่านั้น · "จ่ายจากลิ้นชัก" หักจากเงินสดที่ควรมีในเมนูขายให้แล้ว</p>
+    </div>
   );
 }
 
