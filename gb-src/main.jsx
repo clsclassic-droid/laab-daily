@@ -17,27 +17,29 @@ const ymd6 = (d) => d.slice(2).replace(/-/g, "");
 const timeTH = (ts) => new Date(Date.parse(ts) + 7 * 3600e3).toISOString().slice(11, 16);
 const monthEnd = (ym) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
 
-/* ดึงทุกแถวทีละ 1,000 แล้วนับเทียบกับจำนวนจริง — ไม่ตรงให้ error ทันที */
-async function fetchAll(build) {
-  const { count, error: ce } = await build().select("id", { count: "exact", head: true });
+/* ดึงทุกแถวทีละ 1,000 (เรียงตาม id) แล้วนับเทียบกับจำนวนจริง — ไม่ตรงหรือนับไม่ได้ให้ error ทันที
+   filter = ฟังก์ชันใส่เงื่อนไข (ใช้ทั้งตอนนับและตอนดึง ให้ได้ชุดเดียวกัน) */
+async function fetchAll(table, cols, filter = (q) => q) {
+  const { count, error: ce } = await filter(supabase.from(table).select(cols, { count: "exact", head: true }));
   if (ce) throw ce;
+  if (typeof count !== "number") throw new Error(`นับแถว ${table} ไม่ได้`);
   const out = [];
-  for (let from = 0; from < (count || 0); from += 1000) {
-    const { data, error } = await build().range(from, from + 999);
+  for (let from = 0; from < count; from += 1000) {
+    const { data, error } = await filter(supabase.from(table).select(cols)).order("id").range(from, from + 999);
     if (error) throw error;
     out.push(...data);
   }
-  if (out.length !== (count || 0)) throw new Error(`ดึงข้อมูลไม่ครบ (${out.length}/${count})`);
+  if (out.length !== count) throw new Error(`ดึงข้อมูล ${table} ไม่ครบ (${out.length}/${count}) ลองโหลดใหม่`);
   return out;
 }
 const chk = ({ data, error }) => { if (error) throw error; return data; };
 
 /* ── โหลดข้อมูลของวันที่เลือก (ทุกร้านพร้อมกัน) ── */
 async function loadDay(date) {
-  const [items, saleItems, moves, counts, prevCounts, sales, cash, expItems, purchases, profiles] = await Promise.all([
+  const [items, saleItems, rawMoves, counts, prevCounts, sales, cash, expItems, purchases, profiles, ftBills, ftProducts] = await Promise.all([
     supabase.from("inv_items").select("*").order("sort_order").then(chk),
     supabase.from("inv_sale_items").select("*").in("entity", ["GBS", "GBK"]).order("sort_order").then(chk),
-    supabase.from("inv_moves").select("*").eq("move_date", date).order("created_at").then(chk),
+    supabase.from("inv_moves").select("*, ft_sales(is_voided)").eq("move_date", date).order("created_at").then(chk),
     supabase.from("inv_counts").select("*").eq("count_date", date).eq("kind", "close").then(chk),
     supabase.from("inv_counts").select("*").lt("count_date", date).eq("kind", "close").in("location", ["gbs", "gbk"])
       .order("count_date", { ascending: false }).limit(400).then(chk),
@@ -46,12 +48,32 @@ async function loadDay(date) {
     supabase.from("items").select("*").in("entity", ["GBS", "GBK"]).eq("is_active", true).order("sort_order").then(chk),
     supabase.from("daily_purchases").select("*").in("entity", ["GBS", "GBK"]).eq("purchase_date", date).then(chk),
     supabase.from("profiles").select("id,display_name").then(chk),
+    // บิลโรงลูกชิ้นของซัน/เกดวันนี้ (เบิก = บวก · คืน = ติดลบ) — บิลนี้คือข้อมูลจริงของลูกชิ้นแพ็ค/น้ำจิ้ม
+    supabase.from("ft_sales").select("id,legacy_id,created_order,created_at,created_by,note,ft_customers!inner(name),ft_sale_items(qty,product_id)")
+      .eq("sale_date", date).eq("is_voided", false).in("ft_customers.name", Object.values(SHOPS).map((s) => s.name)).then(chk),
+    supabase.from("ft_products").select("id,legacy_key,name").then(chk),
   ]);
+  // การย้ายที่ผูกกับบิลโรงลูกชิ้นที่ถูกยกเลิก (เช่น ยอดไม้จากบิลเสียบที่ยกเลิก) ไม่นับ
+  const moves = rawMoves.filter((m) => !m.ft_sales?.is_voided);
+  const ftUnmapped = [];
+  for (const b of ftBills) {
+    const shop = Object.values(SHOPS).find((s) => s.name === b.ft_customers.name);
+    const when = new Date(Number(b.created_order) || Date.parse(b.created_at)).toISOString();
+    b.ft_sale_items.forEach((li, n) => {
+      const q = A(li.qty); if (!q) return;
+      const it = items.find((i) => i.ft_product_id === li.product_id);
+      if (!it) { ftUnmapped.push(b); return; }
+      moves.push({ id: `ft:${b.id}:${n}`, ftBill: b, move_date: date, item_id: it.id, qty: Math.abs(q),
+        kind: q > 0 ? "draw" : "return", from_loc: q > 0 ? "factory" : shop.loc, to_loc: q > 0 ? shop.loc : "factory",
+        source: String(b.legacy_id || "").startsWith("gb-") ? "gb-move" : "ft", created_at: when, created_by: b.created_by });
+    });
+  }
+  moves.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
   // ต้นงวดของที่ยกยอดข้ามวัน = นับปิดร้านครั้งล่าสุดก่อนวันนี้
   const prev = {};
   for (const c of prevCounts) { const k = c.location + "|" + c.item_id; if (!(k in prev)) prev[k] = A(c.qty); }
   const who = Object.fromEntries(profiles.map((p) => [p.id, p.display_name]));
-  return { date, items, saleItems, moves, counts, prev, sales, cash, expItems, purchases, who };
+  return { date, items, saleItems, moves, counts, prev, sales, cash, expItems, purchases, who, ftProducts, ftUnmapped: [...new Set(ftUnmapped)] };
 }
 
 /* ── คำนวณหน้าขายของร้านหนึ่ง (ใช้ทั้งหน้าจอและตอนลงบัญชี) ── */
@@ -166,24 +188,64 @@ function MovesTab({ day, reload, setMsg }) {
     }));
     if (!rows.length) return setMsg("ยังไม่ได้ใส่จำนวน");
     if (!isNew && from === to) return setMsg("ต้นทางกับปลายทางต้องไม่ใช่ที่เดียวกัน");
+    // ลูกชิ้นแพ็ค/น้ำจิ้ม ที่เบิกจากหรือคืนโรงงาน → สร้างบิลโรงลูกชิ้น (ราคา 0) ใบเดียว ไม่เก็บซ้ำในตารางย้ายของ
+    const itemById = Object.fromEntries(items.map((i) => [i.id, i]));
+    const ftRows = rows.filter((r) => itemById[r.item_id].ft_product_id && (r.kind === "draw" || r.kind === "return"));
+    const invRows = rows.filter((r) => !ftRows.includes(r));
+    const stamp = Date.now();
+    for (const r of invRows) r.created_at = new Date(stamp).toISOString();
     setBusy(true);
+    let billId = null;
     try {
-      chk(await supabase.from("inv_moves").insert(rows));
-      setQty({}); setAmt(""); setNote(""); setMsg("บันทึกการย้ายแล้ว"); await reload();
+      if (ftRows.length) {
+        const shop = LOC_NAME[ftRows[0].kind === "draw" ? to : from];
+        const keys = Object.fromEntries(day.ftProducts.map((p) => [p.id, p.legacy_key]));
+        billId = "gb-" + crypto.randomUUID();
+        const recItems = ftRows.map((r) => {
+          const it = itemById[r.item_id];
+          return { product: keys[it.ft_product_id], quantity: r.kind === "draw" ? r.qty : -r.qty, input: 0, mode: it.unit === "กก." ? "batch" : "piece" };
+        });
+        if (recItems.some((x) => !x.product)) throw new Error("ไม่พบสินค้าที่หน้าโรงลูกชิ้น");
+        const { error } = await supabase.rpc("ft_save_record", { r: {
+          id: billId, kind: "sale", date: day.date, customer: shop, items: recItems, total: 0, paid: 0,
+          priceGroup: "wholesale", unitPrices: Object.fromEntries(recItems.map((x) => [x.product, 0])),
+          note: ["ลงจากหน้าลูกชิ้นปิ้ง", note].filter(Boolean).join(" · "), createdOrder: stamp } });
+        if (error) throw error;
+      }
+      if (invRows.length) {
+        const { error } = await supabase.from("inv_moves").insert(invRows);
+        if (error) {
+          if (billId) await supabase.rpc("ft_save_record", { r: { id: billId, action: "cancelSale", confirm: billId, reason: "บันทึกย้ายของไม่สำเร็จ ยกเลิกอัตโนมัติ" } });
+          throw error;
+        }
+      }
+      setQty({}); setAmt(""); setNote("");
+      setMsg(ftRows.length ? "บันทึกแล้ว · ลูกชิ้นแพ็ค/น้ำจิ้ม ขึ้นเป็นบิลที่หน้าโรงลูกชิ้นด้วย" : "บันทึกการย้ายแล้ว"); await reload();
     } catch (e) { setMsg("บันทึกไม่ได้: " + e.message); }
     setBusy(false);
   };
-  const del = async (ids) => {
-    if (!confirm("ลบรายการย้ายนี้?")) return;
-    try { chk(await supabase.from("inv_moves").delete().in("id", ids)); await reload(); } catch (e) { setMsg(e.message); }
+  const del = async (g) => {
+    const bills = [...new Map(g.bills.map((b) => [b.id, b])).values()];
+    const fromFt = bills.some((b) => !String(b.legacy_id || "").startsWith("gb-"));
+    if (!confirm(bills.length ? `ลบรายการย้ายนี้? บิลที่หน้าโรงลูกชิ้น${fromFt ? " (ลงจากหน้าโรงลูกชิ้น)" : ""} จะถูกยกเลิกด้วย` : "ลบรายการย้ายนี้?")) return;
+    try {
+      if (g.ids.length) chk(await supabase.from("inv_moves").delete().in("id", g.ids));
+      for (const b of bills) {
+        const key = b.legacy_id || b.id;
+        const { error } = await supabase.rpc("ft_save_record", { r: { id: key, action: "cancelSale", confirm: key, reason: "ลบจากหน้าลูกชิ้นปิ้ง" } });
+        if (error) throw error;
+      }
+      await reload();
+    } catch (e) { setMsg(e.message); }
   };
   // รวมรายการที่บันทึกพร้อมกันเป็นแถวเดียว
   const groups = [];
   for (const m of day.moves.filter((m) => m.source === "gb-move" || m.from_loc === "gbs" || m.from_loc === "gbk" || m.to_loc === "gbs" || m.to_loc === "gbk" || m.to_loc === "factory")) {
     const k = m.created_at.slice(0, 19) + m.from_loc + m.to_loc;
     let g = groups.find((x) => x.k === k);
-    if (!g) groups.push(g = { k, m, ids: [], q: {} });
-    g.ids.push(m.id); g.q[m.item_id] = A(m.qty);
+    if (!g) groups.push(g = { k, m, ids: [], bills: [], q: {}, ft: false });
+    if (m.ftBill) { g.bills.push(m.ftBill); if (m.source === "ft") g.ft = true; } else g.ids.push(m.id);
+    g.q[m.item_id] = r2((g.q[m.item_id] || 0) + A(m.qty));
   }
   const tot = (loc, dir) => Object.fromEntries(items.map((i) => [i.id, r2(day.moves.filter((m) => m.item_id === i.id && (dir === "in" ? m.to_loc : m.from_loc) === loc).reduce((t, m) => t + A(m.qty), 0))]));
   return (
@@ -207,16 +269,17 @@ function MovesTab({ day, reload, setMsg }) {
         {isNew && <label>ค่าของ (ถ้าซื้อเข้า เช่น โคขุน · ร้านก๋วยเตี๋ยวจ่าย)<Num value={amt} onChange={setAmt} ph="บาท" /></label>}
         <label>หมายเหตุ<input value={note} onChange={(e) => setNote(e.target.value)} /></label>
         <button disabled={busy} onClick={save}>บันทึก</button>
-        <p className="muted small">ยังไม่สร้างบิลที่หน้าโรงลูกชิ้นให้อัตโนมัติ (จะทำในขั้นต่อไป) · ไม้ปิ้งที่โรงงานยังไม่ได้รับยอดเสียบไม้จากโรงลูกชิ้น (ขั้นที่ 4) ใช้ "เข้าใหม่" แทนไปก่อน</p>
+        <p className="muted small">ลูกชิ้นแพ็ค/น้ำจิ้ม ที่เบิกหรือคืนโรงงาน = ขึ้นเป็นบิลที่หน้าโรงลูกชิ้นให้เอง (ราคา 0) · บิลซัน/เกดที่ลงจากหน้าโรงลูกชิ้นก็ขึ้นที่นี่ (ป้าย "หน้าโรงลูกชิ้น") ลงที่เดียวพอ · ไม้ปิ้งที่โรงงานได้จากช่อง "ได้กี่ไม้" ของบิลเสียบลูกชิ้นปิ้งที่หน้าโรงลูกชิ้น</p>
+        {day.ftUnmapped.length > 0 && <p className="warn">บิลโรงลูกชิ้นของซัน/เกดวันนี้มีสินค้าที่ไม่มีในลูกชิ้นปิ้ง (เช่น เนื้อเอ็น) ไม่ได้นับในหน้านี้</p>}
       </div>
       <div className="card">
         <h2>รายการวันนี้</h2>
         {!groups.length && <p className="muted">ยังไม่มี</p>}
         <div className="scroll"><table className="grid"><thead><tr><th>เวลา</th><th>จาก → ไป</th>{items.map((i) => <th key={i.id}>{i.name}</th>)}<th>คนลง</th><th></th></tr></thead>
           <tbody>{groups.map((g) => (
-            <tr key={g.k}><td>{timeTH(g.m.created_at)}</td><td className="nw">{g.m.from_loc ? LOC_NAME[g.m.from_loc] : "เข้าใหม่"} → {LOC_NAME[g.m.to_loc] || "-"}</td>
+            <tr key={g.k}><td>{timeTH(g.m.created_at)}</td><td className="nw">{g.m.from_loc ? LOC_NAME[g.m.from_loc] : "เข้าใหม่"} → {LOC_NAME[g.m.to_loc] || "-"}{g.ft && <span className="tag">หน้าโรงลูกชิ้น</span>}{g.m.kind === "produce" && g.m.ft_sale_id && <span className="tag">เสียบไม้</span>}</td>
               {items.map((i) => <td key={i.id} className="r">{g.q[i.id] ? fmt(g.q[i.id]) : ""}</td>)}
-              <td className="muted">{day.who[g.m.created_by] || ""}</td><td><button className="link" onClick={() => del(g.ids)}>ลบ</button></td></tr>
+              <td className="muted">{day.who[g.m.created_by] || ""}</td><td><button className="link" onClick={() => del(g)}>ลบ</button></td></tr>
           ))}</tbody></table></div>
       </div>
       <div className="card">
@@ -238,9 +301,9 @@ function FactoryStock({ items, date, reload, setMsg }) {
   const load = useCallback(async () => {
     const ids = items.map((i) => i.id);
     if (!ids.length) return setStock({});
-    const rows = await fetchAll(() => supabase.from("inv_moves").select("item_id,qty,from_loc,to_loc").in("item_id", ids).lte("move_date", date).or("from_loc.eq.factory,to_loc.eq.factory").order("id"));
+    const rows = await fetchAll("inv_moves", "id,item_id,qty,from_loc,to_loc,ft_sales(is_voided)", (q) => q.in("item_id", ids).lte("move_date", date).or("from_loc.eq.factory,to_loc.eq.factory"));
     const s = Object.fromEntries(ids.map((i) => [i, 0]));
-    for (const m of rows) s[m.item_id] += (m.to_loc === "factory" ? 1 : -1) * A(m.qty);
+    for (const m of rows) if (!m.ft_sales?.is_voided) s[m.item_id] = r2(s[m.item_id] + (m.to_loc === "factory" ? 1 : -1) * A(m.qty));
     setStock(s);
   }, [items.map((i) => i.id).join(), date]);
   useEffect(() => { load().catch((e) => setMsg(e.message)); }, [load]);
@@ -421,9 +484,8 @@ function SummaryTab({ day, ent, setMsg }) {
   useEffect(() => {
     let live = true;
     (async () => {
-      const lines = await fetchAll(() => supabase.from("journal_lines")
-        .select("id,debit,credit,account_code,journal_entries!inner(entry_date,entity)")
-        .eq("journal_entries.entity", ent).gte("journal_entries.entry_date", ym + "-01").lte("journal_entries.entry_date", monthEnd(ym)).order("id"));
+      const lines = await fetchAll("journal_lines", "id,debit,credit,account_code,journal_entries!inner(entry_date,entity)",
+        (q) => q.eq("journal_entries.entity", ent).gte("journal_entries.entry_date", ym + "-01").lte("journal_entries.entry_date", monthEnd(ym)));
       const by = {};
       for (const l of lines) {
         const d = l.journal_entries.entry_date, c = l.account_code.slice(0, 4), x = by[d] || (by[d] = { d, sales: 0, vat: 0, cost: 0, exp: 0, diff: 0 });

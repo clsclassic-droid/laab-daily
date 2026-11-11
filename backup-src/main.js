@@ -16,6 +16,8 @@ const TABLES = [
   ["ft_employees", "id"], ["ft_employee_rates", "id"], ["ft_attendance", "id"],
   ["ft_wage_adjustments", "id"], ["ft_labor_payments", "id"],
   ["ft_materials", "id"], ["ft_material_payments", "id"], ["ft_operations", "op_id"],
+  ["inv_locations", "code"], ["inv_items", "id"], ["inv_sale_items", "id"],
+  ["inv_moves", "id"], ["inv_counts", "id"],
 ];
 const PAGE = 1000;
 
