@@ -313,7 +313,7 @@ async function fetchSavedDatesSummary() {
 }
 
 /* ใบสำคัญที่ลงวันที่เดียวกันได้ แต่ไม่ได้มาจากหน้าบันทึกรายวัน — ห้ามลบ/เขียนทับจากหน้ารายวัน */
-const NON_DAY_SOURCES = "(payroll,monthly_expense,ap_payment)";
+const NON_DAY_SOURCES = "(payroll,monthly_expense,ap_payment,wh_purchase,wh_pay,wh_draw)"; // wh_* = จากหน้าซื้อของ/คลังกลาง (ลบวันร้านลาบต้องไม่ลบ)
 
 async function deleteDayDB(date) {
   await Promise.all([

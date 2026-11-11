@@ -8,6 +8,11 @@
 
 ---
 
+## 12 พ.ย. 2569 — ร้านลาบไม่ลบใบบัญชีจากคลังกลาง + แก้บั๊กใบบัญชีลูกชิ้นปิ้ง (บอสหนึ่งอนุญาต 00:51 "ก")
+- ไฟล์: `laab-daily-entry-v17.jsx` `NON_DAY_SOURCES` เพิ่ม `wh_purchase,wh_pay,wh_draw` (ใช้ทั้งลบวัน/โหลดใบรายวัน/บันทึกใบรายวัน) → build `app.min.js` → ฝัง `index.html` · ก่อนแก้ build จากไฟล์ตัวจริงตรงกับ `index.html` ทุกไบต์
+- ฐานข้อมูล: migration `journal_source_types_gb` (สำเนา `wh-src/sql/03_source_types_gb.sql`) เพิ่ม `gb_sales,gb_expense,gb_goods,gb_variable,gb_cash_diff` ใน check constraint — เดิมปิดวันซัน/เกดลงบัญชีไม่ผ่าน (ไม่มีใบ gb_ ในระบบเลย) · ทดสอบย้อนกลับ insert ทั้ง 5 ประเภทผ่าน
+- ไฟล์ตัวจริงร้านลาบ: `laab-daily-entry-v17.jsx`
+
 ## 12 พ.ย. 2569 — คลังกลาง ขั้น 2: ลงบัญชีอัตโนมัติ + หน้าทดสอบ `wh-test/` (บอสหนึ่งอนุญาต 00:40 "ก")
 - ฐานข้อมูล: migration `wh_step2_posting` (สำเนา `wh-src/sql/02_posting.sql`)
   - `journal_entries.source_id` (ผูกใบบัญชีกับแถวต้นทาง) · source_type ใหม่ `wh_purchase` · `wh_pay` · `wh_draw` · `inv_moves.unit_vat`
