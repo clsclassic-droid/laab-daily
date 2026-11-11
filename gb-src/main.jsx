@@ -7,7 +7,7 @@ import { supabase } from "../supabaseClient.js";
 
 const SHOPS = { GBS: { name: "ซัน", loc: "gbs", bank: false }, GBK: { name: "เกด", loc: "gbk", bank: true } };
 const LOC_NAME = { factory: "โรงงาน", gbs: "ซัน", gbk: "เกด", main: "คลังหลัก", ns: "ร้านก๋วยเตี๋ยว", ls: "ร้านลาบ" };
-const MOVE_LOCS = ["factory", "gbs", "gbk"];
+const MOVE_LOCS = ["factory", "gbs", "gbk", "ns"]; // ร้านก๋วยเตี๋ยว = ย้ายไปเก็บไว้เฉยๆ ไม่มีเงิน
 const A = (v) => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const fmt = (n, d = 0) => (n == null ? "" : Number(n).toLocaleString("th-TH", { minimumFractionDigits: d, maximumFractionDigits: 2 }));
@@ -171,56 +171,67 @@ const Num = ({ value, onChange, ph, w }) => (
     value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.\-]/g, ""))} />
 );
 
+/* ── บันทึกการย้ายของ 1 รอบ (จาก → ไป) ใช้ทั้งเมนูย้ายของ และปุ่ม "ย้ายของที่เหลือ" ในเมนูขาย ──
+   ลูกชิ้นแพ็ค/น้ำจิ้ม ที่เบิกจากหรือคืนโรงงาน → สร้างบิลโรงลูกชิ้น (ราคา 0) ใบเดียว ไม่เก็บซ้ำในตารางย้ายของ
+   คืนค่า true ถ้ามีบิลโรงลูกชิ้น */
+async function recordMoves(day, items, from, to, qty, note = "", amt = "") {
+  const isNew = from === "new";
+  const kind = isNew ? "new" : to === "factory" ? "return" : from === "factory" ? "draw" : "transfer";
+  const rows = items.filter((i) => A(qty[i.id]) > 0).map((i) => ({
+    move_date: day.date, item_id: i.id, qty: A(qty[i.id]),
+    kind: isNew ? (i.is_produced ? "produce" : "purchase") : kind,
+    from_loc: isNew ? null : from, to_loc: to, source: "gb-move", note: note || null,
+    amount: isNew && !i.is_produced && A(amt) ? A(amt) : null, paid_by_entity: isNew && !i.is_produced ? "NS" : null,
+  }));
+  if (!rows.length) throw new Error("ยังไม่ได้ใส่จำนวน");
+  if (!isNew && from === to) throw new Error("ต้นทางกับปลายทางต้องไม่ใช่ที่เดียวกัน");
+  const itemById = Object.fromEntries(items.map((i) => [i.id, i]));
+  const ftRows = rows.filter((r) => itemById[r.item_id].ft_product_id && (r.kind === "draw" || r.kind === "return"));
+  // ร้านก๋วยเตี๋ยว ↔ โรงงาน ของลูกชิ้นแพ็ค/น้ำจิ้ม ยังไม่รองรับ (ต้องตกลงเรื่องบิลโรงลูกชิ้นก่อน)
+  if (ftRows.length && (from === "ns" || to === "ns"))
+    throw new Error("ลูกชิ้นแพ็ค/น้ำจิ้ม ระหว่างร้านก๋วยเตี๋ยวกับโรงงาน ยังลงจากหน้านี้ไม่ได้");
+  const invRows = rows.filter((r) => !ftRows.includes(r));
+  const stamp = Date.now();
+  for (const r of invRows) r.created_at = new Date(stamp).toISOString();
+  let billId = null;
+    if (ftRows.length) {
+      const shop = LOC_NAME[ftRows[0].kind === "draw" ? to : from];
+      const keys = Object.fromEntries(day.ftProducts.map((p) => [p.id, p.legacy_key]));
+      billId = "gb-" + crypto.randomUUID();
+      const recItems = ftRows.map((r) => {
+        const it = itemById[r.item_id];
+        return { product: keys[it.ft_product_id], quantity: r.kind === "draw" ? r.qty : -r.qty, input: 0, mode: it.unit === "กก." ? "batch" : "piece" };
+      });
+      if (recItems.some((x) => !x.product)) throw new Error("ไม่พบสินค้าที่หน้าโรงลูกชิ้น");
+      const { error } = await supabase.rpc("ft_save_record", { r: {
+        id: billId, kind: "sale", date: day.date, customer: shop, items: recItems, total: 0, paid: 0,
+        priceGroup: "wholesale", unitPrices: Object.fromEntries(recItems.map((x) => [x.product, 0])),
+        note: ["ลงจากหน้าลูกชิ้นปิ้ง", note].filter(Boolean).join(" · "), createdOrder: stamp } });
+      if (error) throw error;
+    }
+    if (invRows.length) {
+      const { error } = await supabase.from("inv_moves").insert(invRows);
+      if (error) {
+        if (billId) await supabase.rpc("ft_save_record", { r: { id: billId, action: "cancelSale", confirm: billId, reason: "บันทึกย้ายของไม่สำเร็จ ยกเลิกอัตโนมัติ" } });
+        throw error;
+      }
+    }
+  return ftRows.length > 0;
+}
+
 /* ── เมนูย้ายของ ── */
 function MovesTab({ day, reload, setMsg }) {
   const [from, setFrom] = useState("factory"), [to, setTo] = useState("gbs");
   const [qty, setQty] = useState({}), [amt, setAmt] = useState(""), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
   const items = day.items.filter((i) => i.is_active && ["ลูกชิ้นปิ้ง", "ลูกชิ้นแพ็ค", "น้ำจิ้ม"].includes(i.category));
   const isNew = from === "new";
-  const kind = isNew ? "new" : to === "factory" ? "return" : from === "factory" ? "draw" : "transfer";
   const sameDay = !isNew && from !== to && day.moves.some((m) => m.from_loc === from && m.to_loc === to);
   const save = async () => {
-    const rows = items.filter((i) => A(qty[i.id]) > 0).map((i) => ({
-      move_date: day.date, item_id: i.id, qty: A(qty[i.id]),
-      kind: isNew ? (i.is_produced ? "produce" : "purchase") : kind,
-      from_loc: isNew ? null : from, to_loc: to, source: "gb-move", note: note || null,
-      amount: isNew && !i.is_produced && A(amt) ? A(amt) : null, paid_by_entity: isNew && !i.is_produced ? "NS" : null,
-    }));
-    if (!rows.length) return setMsg("ยังไม่ได้ใส่จำนวน");
-    if (!isNew && from === to) return setMsg("ต้นทางกับปลายทางต้องไม่ใช่ที่เดียวกัน");
-    // ลูกชิ้นแพ็ค/น้ำจิ้ม ที่เบิกจากหรือคืนโรงงาน → สร้างบิลโรงลูกชิ้น (ราคา 0) ใบเดียว ไม่เก็บซ้ำในตารางย้ายของ
-    const itemById = Object.fromEntries(items.map((i) => [i.id, i]));
-    const ftRows = rows.filter((r) => itemById[r.item_id].ft_product_id && (r.kind === "draw" || r.kind === "return"));
-    const invRows = rows.filter((r) => !ftRows.includes(r));
-    const stamp = Date.now();
-    for (const r of invRows) r.created_at = new Date(stamp).toISOString();
     setBusy(true);
-    let billId = null;
     try {
-      if (ftRows.length) {
-        const shop = LOC_NAME[ftRows[0].kind === "draw" ? to : from];
-        const keys = Object.fromEntries(day.ftProducts.map((p) => [p.id, p.legacy_key]));
-        billId = "gb-" + crypto.randomUUID();
-        const recItems = ftRows.map((r) => {
-          const it = itemById[r.item_id];
-          return { product: keys[it.ft_product_id], quantity: r.kind === "draw" ? r.qty : -r.qty, input: 0, mode: it.unit === "กก." ? "batch" : "piece" };
-        });
-        if (recItems.some((x) => !x.product)) throw new Error("ไม่พบสินค้าที่หน้าโรงลูกชิ้น");
-        const { error } = await supabase.rpc("ft_save_record", { r: {
-          id: billId, kind: "sale", date: day.date, customer: shop, items: recItems, total: 0, paid: 0,
-          priceGroup: "wholesale", unitPrices: Object.fromEntries(recItems.map((x) => [x.product, 0])),
-          note: ["ลงจากหน้าลูกชิ้นปิ้ง", note].filter(Boolean).join(" · "), createdOrder: stamp } });
-        if (error) throw error;
-      }
-      if (invRows.length) {
-        const { error } = await supabase.from("inv_moves").insert(invRows);
-        if (error) {
-          if (billId) await supabase.rpc("ft_save_record", { r: { id: billId, action: "cancelSale", confirm: billId, reason: "บันทึกย้ายของไม่สำเร็จ ยกเลิกอัตโนมัติ" } });
-          throw error;
-        }
-      }
+      const ft = await recordMoves(day, items, from, to, qty, note, amt);
       setQty({}); setAmt(""); setNote("");
-      setMsg(ftRows.length ? "บันทึกแล้ว · ลูกชิ้นแพ็ค/น้ำจิ้ม ขึ้นเป็นบิลที่หน้าโรงลูกชิ้นด้วย" : "บันทึกการย้ายแล้ว"); await reload();
+      setMsg(ft ? "บันทึกแล้ว · ลูกชิ้นแพ็ค/น้ำจิ้ม ขึ้นเป็นบิลที่หน้าโรงลูกชิ้นด้วย" : "บันทึกการย้ายแล้ว"); await reload();
     } catch (e) { setMsg("บันทึกไม่ได้: " + e.message); }
     setBusy(false);
   };
@@ -240,7 +251,7 @@ function MovesTab({ day, reload, setMsg }) {
   };
   // รวมรายการที่บันทึกพร้อมกันเป็นแถวเดียว
   const groups = [];
-  for (const m of day.moves.filter((m) => m.source === "gb-move" || m.from_loc === "gbs" || m.from_loc === "gbk" || m.to_loc === "gbs" || m.to_loc === "gbk" || m.to_loc === "factory")) {
+  for (const m of day.moves.filter((m) => m.source === "gb-move" || MOVE_LOCS.includes(m.from_loc) || MOVE_LOCS.includes(m.to_loc))) {
     const k = m.created_at.slice(0, 19) + m.from_loc + m.to_loc;
     let g = groups.find((x) => x.k === k);
     if (!g) groups.push(g = { k, m, ids: [], bills: [], q: {}, ft: false });
@@ -335,14 +346,15 @@ function FactoryStock({ items, date, reload, setMsg }) {
 /* ── เมนูขาย (นับของ + รับเงิน + ปิดลิ้นชัก) ── */
 function SellTab({ day, ent, reload, setMsg }) {
   const loc = SHOPS[ent].loc;
-  const [left, setLeft] = useState({});
+  const [left, setLeft] = useState({}), [dest, setDest] = useState({});
   const saleRow = (ch) => day.sales.find((s) => s.entity === ent && s.channel === ch);
   const cc = day.cash.find((c) => c.entity === ent);
   const [tr, setTr] = useState(""), [open, setOpen] = useState(""), [counted, setCounted] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => {
-    setLeft({}); setTr(saleRow("transfer") ? String(A(saleRow("transfer").amount)) : "");
+    setTr(saleRow("transfer") ? String(A(saleRow("transfer").amount)) : "");
     setOpen(cc ? String(A(cc.opening_cash)) : ""); setCounted(cc && cc.counted_cash != null ? String(A(cc.counted_cash)) : "");
   }, [day, ent]);
+  useEffect(() => { setLeft({}); setDest({}); }, [day.date, ent]); // ยอดเหลือที่พิมพ์ค้างไว้ไม่หายตอนโหลดใหม่หลังย้ายของ
   const sell = computeSell(day, ent, left);
   const trAmt = SHOPS[ent].bank ? A(tr) : 0;
   const cashSales = r2(sell.total - trAmt);
@@ -377,20 +389,46 @@ function SellTab({ day, ent, reload, setMsg }) {
       const fresh = await loadDay(day.date); await postDay(fresh, ent); await reload();
     } catch (e) { setMsg(e.message); }
   };
+  // ปุ่ม "ย้ายของที่เหลือ": ของที่เหลือแต่ละแถวส่งไปตามที่เลือก แล้วช่องเหลือกลับเป็น 0
+  const DEST = [["", "เก็บไว้ที่ร้าน"], [ent === "GBS" ? "gbk" : "gbs", ent === "GBS" ? "เกด" : "ซัน"], ["factory", "โรงงาน"], ["ns", "ร้านก๋วยเตี๋ยว"]];
+  const toMove = sell.rows.filter((r) => r.left > 0 && dest[r.s.item_id]);
+  const moveLeft = async () => {
+    if (!toMove.length) return setMsg("ยังไม่ได้เลือกว่าของที่เหลือจะส่งไปไหน");
+    const byTo = {};
+    for (const r of toMove) (byTo[dest[r.s.item_id]] ||= {})[r.s.item_id] = r.left;
+    const txt = Object.entries(byTo).map(([t, q]) => `→ ${LOC_NAME[t]}: ` + toMove.filter((r) => q[r.s.item_id]).map((r) => `${r.it.name} ${fmt(r.left)}`).join(", ")).join("\n");
+    if (!confirm(`ย้ายของที่เหลือของ${SHOPS[ent].name}\n${txt}`)) return;
+    setBusy(true);
+    const done = [];
+    try {
+      for (const [t, q] of Object.entries(byTo)) { await recordMoves(day, day.items, loc, t, q, "ของเหลือตอนปิดร้าน"); done.push(...Object.keys(q)); }
+      setMsg("ย้ายของที่เหลือแล้ว");
+    } catch (e) { setMsg((done.length ? "ย้ายได้บางส่วน · " : "") + "ย้ายไม่ได้: " + e.message); }
+    // แถวที่ย้ายสำเร็จ → ช่องเหลือเป็น 0 (ไม่ให้หักซ้ำ)
+    if (done.length) {
+      const l = { ...left }, d = { ...dest };
+      for (const id of done) { l[id] = ""; delete d[id]; }
+      await reload(); setLeft(l); setDest(d);
+    }
+    setBusy(false);
+  };
   const closed = cc?.is_closed;
   return (
     <>
       <div className="card">
         <h2>นับของ {SHOPS[ent].name} {closed && <span className="tag">ปิดยอดแล้ว</span>}</h2>
-        <div className="scroll"><table className="grid"><thead><tr><th>สินค้า</th><th>ต้นงวด</th><th>รับเข้า</th><th>ส่งออก</th><th>เหลือ (นับ)</th><th>ขายได้</th><th>ราคา</th><th>ยอดเงิน</th></tr></thead>
+        <div className="scroll"><table className="grid"><thead><tr><th>สินค้า</th><th>ต้นงวด</th><th>รับเข้า</th><th>ส่งออก</th><th>เหลือ (นับ)</th>{!closed && <th>ส่งไป</th>}<th>ขายได้</th><th>ราคา</th><th>ยอดเงิน</th></tr></thead>
           <tbody>{sell.rows.map((r) => (
             <tr key={r.s.id} className={r.s.is_active ? "" : "muted"}><td className="nw">{r.it.name}<span className="muted small"> {r.it.unit}</span></td>
               <td className="r">{r.open ? fmt(r.open) : ""}</td><td className="r">{r.inn ? fmt(r.inn) : ""}</td><td className="r">{r.out ? fmt(r.out) : ""}</td>
               <td className="r">{closed ? fmt(r.left) : <Num value={r.leftStr} ph="0" w="5em" onChange={(v) => setLeft({ ...left, [r.s.item_id]: v })} />}</td>
+              {!closed && <td>{r.left > 0 && <select className="dest" value={dest[r.s.item_id] || ""} onChange={(e) => setDest({ ...dest, [r.s.item_id]: e.target.value })}>
+                {DEST.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>}</td>}
               <td className={"r b " + (r.sold < 0 ? "red" : "")}>{fmt(r.sold)}</td><td className="r">{fmt(A(r.s.price))}</td><td className="r">{fmt(r.amount)}</td></tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={7}>รวมยอดขาย</td><td className="r b">{fmt(sell.total)}</td></tr></tfoot></table></div>
-        <p className="muted small">ขายได้ = ต้นงวด + รับเข้า − ส่งออก − เหลือ · รับเข้า/ส่งออกมาจากเมนูย้ายของ · "เหลือ" คือของที่ยังอยู่ที่ร้านหลังส่งต่อ/คืนแล้ว (ปกติ 0) · น้ำจิ้มที่เหลือยกไปเป็นต้นงวดพรุ่งนี้</p>
+          <tfoot><tr><td colSpan={closed ? 7 : 8}>รวมยอดขาย</td><td className="r b">{fmt(sell.total)}</td></tr></tfoot></table></div>
+        {!closed && toMove.length > 0 && <button disabled={busy} onClick={moveLeft}>ย้ายของที่เหลือ ({toMove.length} รายการ)</button>}
+        <p className="muted small">ขายได้ = ต้นงวด + รับเข้า − ส่งออก − เหลือ · ใส่ "เหลือ" แล้วเลือก "ส่งไป" ต่อท้ายแถว → กดปุ่มย้ายของที่เหลือ ระบบลงเมนูย้ายของให้และเปลี่ยนช่องเหลือเป็น 0 เอง · "เก็บไว้ที่ร้าน" = ไม่ย้าย (น้ำจิ้มที่เหลือยกไปเป็นต้นงวดพรุ่งนี้) · ของอย่างเดียวกันแบ่งไปสองที่ ให้ลงที่เมนูย้ายของ</p>
       </div>
       <div className="card">
         <h2>รับเงิน และปิดลิ้นชัก</h2>
