@@ -707,6 +707,19 @@ async function fetchDashboardDaily(fromDate, toDate) {
     const g = purchGroupByDate[r.purchase_date] || (purchGroupByDate[r.purchase_date] = {});
     g[cg] = (g[cg] || 0) + A(r.amount);
   });
+  // รายจ่ายจากหน้าซื้อของ/คลังกลาง (ใบบัญชี wh_*) — บัญชีค่าใช้จ่ายเท่านั้น ดึงทีละ 1,000 แถว
+  const whRows = await fetchAllRows(() => supabase.from("journal_lines")
+    .select("id,debit,credit,accounts!inner(cost_group,account_type),journal_entries!inner(entry_date,entity,source_type)")
+    .eq("journal_entries.entity", ENTITY).in("journal_entries.source_type", ["wh_purchase", "wh_draw"])
+    .eq("accounts.account_type", "expense")
+    .gte("journal_entries.entry_date", fromDate).lte("journal_entries.entry_date", toDate).order("id"));
+  whRows.forEach((r) => {
+    const d = r.journal_entries.entry_date, v = A(r.debit) - A(r.credit);
+    purchByDate[d] = (purchByDate[d] || 0) + v;
+    const cg = r.accounts.cost_group || "waste_misc";
+    const g = purchGroupByDate[d] || (purchGroupByDate[d] = {});
+    g[cg] = (g[cg] || 0) + v;
+  });
   const laborByDate = {};
   (laborRes.data || []).forEach((r) => {
     laborByDate[r.work_date] = (laborByDate[r.work_date] || 0) + A(r.amount);
@@ -774,7 +787,7 @@ async function fetchProfitHistory() {
 async function fetchVatSummary(period, vatVendorSet) {
   const start = period + "-01";
   const end = monthEnd(period);
-  const [journalRes, salesRes, purchRes, mexpRes] = await Promise.all([
+  const [journalRes, salesRes, purchRes, mexpRes, whVatRes] = await Promise.all([
     supabase.from("journal_lines")
       .select("debit,credit,accounts(account_type),journal_entries!inner(entry_date,entity)")
       .eq("journal_entries.entity", ENTITY)
@@ -783,7 +796,10 @@ async function fetchVatSummary(period, vatVendorSet) {
     supabase.from("daily_sales").select("amount").eq("entity", ENTITY).gte("sale_date", start).lte("sale_date", end),
     supabase.from("daily_purchases").select("amount,vendor_name").eq("entity", ENTITY).gte("purchase_date", start).lte("purchase_date", end),
     supabase.from("monthly_expenses").select("amount,has_tax_invoice").eq("entity", ENTITY).eq("period", period),
+    // VAT ซื้อจากหน้าซื้อของ/คลังกลาง (ซื้อให้ร้านลาบ + ส่วนแบ่งตามที่เบิก) — ใบบัญชีร้านลาบรวม VAT ในต้นทุนเหมือนรายการซื้อเดิม
+    supabase.rpc("wh_vat_in", { p_ent: ENTITY, p_from: start, p_to: end }),
   ]);
+  if (whVatRes.error) throw whVatRes.error;
   if (journalRes.error) throw journalRes.error;
   if (salesRes.error) throw salesRes.error;
   if (purchRes.error) throw purchRes.error;
@@ -801,7 +817,7 @@ async function fetchVatSummary(period, vatVendorSet) {
   const purchVatBase = (purchRes.data || []).reduce((s, r) => s + (r.vendor_name && vatVendorSet.has(r.vendor_name) ? A(r.amount) : 0), 0);
   const mexpVatBase = (mexpRes.data || []).reduce((s, r) => s + (r.has_tax_invoice ? A(r.amount) : 0), 0);
   const outputVat = r2(revenue * 7 / 107);
-  const inputVat = r2((purchVatBase + mexpVatBase) * 7 / 107);
+  const inputVat = r2((purchVatBase + mexpVatBase) * 7 / 107 + A(whVatRes.data));
   const netVat = r2(outputVat - inputVat);
   return { period, revenue: r2(revenue), dailySalesTotal: r2(dailySalesTotal), revenueMismatch, outputVat, inputVat, netVat };
 }
@@ -929,6 +945,30 @@ async function deleteVendorPaymentDB(p) {
 }
 
 /* จ่ายเจ้าหนี้ในวันที่เลือก — ใช้หักเงินสดในลิ้นชักหน้าบันทึกรายวัน */
+/* รายการจากหน้าซื้อของ/คลังกลาง (wh-test) ของวันที่เลือก — ดูอย่างเดียว แก้ที่หน้าคลังกลาง
+   wh_purchase = ซื้อให้ร้านลาบ · wh_draw = เบิก/คืนคลังกลาง · wh_pay = ลิ้นชัก/บัญชีร้านลาบจ่ายแทนของคลังกลาง/ร้านอื่น */
+const WH_SOURCES = ["wh_purchase", "wh_draw", "wh_pay"];
+async function fetchWhOnDate(date) {
+  const { data, error } = await supabase.from("journal_entries")
+    .select("id,voucher_no,description,source_type,journal_lines(account_code,debit,credit)")
+    .eq("entity", ENTITY).eq("entry_date", date).in("source_type", WH_SOURCES).order("voucher_no");
+  if (error) throw error;
+  return data || [];
+}
+/* แยกรายการคลังกลางเป็น ต้นทุน (ตามหมวดของหน้าร้านลาบ) + เงินสดที่ออกจากลิ้นชัก */
+const CODE_GRP = Object.fromEntries(Object.values(CATS).map((c) => [c.code, c.grp]));
+function whSplit(entries) {
+  return entries.map((e) => {
+    const L = e.journal_lines || [];
+    const costLines = e.source_type === "wh_pay" ? [] : L.filter((l) => /^[56]/.test(l.account_code));
+    const cost = r2(costLines.reduce((s, l) => s + A(l.debit) - A(l.credit), 0));
+    const grp = costLines.length ? (CODE_GRP[costLines[0].account_code] || "ops") : null;
+    const cash = r2(L.filter((l) => l.account_code === PAY.cash.code).reduce((s, l) => s + A(l.credit) - A(l.debit), 0));
+    const bank = r2(L.filter((l) => l.account_code === PAY.transfer.code).reduce((s, l) => s + A(l.credit) - A(l.debit), 0));
+    return { id: e.id, no: e.voucher_no, title: e.description, type: e.source_type, cost, grp, cash, bank };
+  });
+}
+
 async function fetchApPaymentsOnDate(date) {
   const { data, error } = await supabase.from("vendor_payments")
     .select("id,vendor_name,amount,payment_method,voucher_no").eq("entity", ENTITY).eq("payment_date", date).order("created_at");
@@ -2168,6 +2208,7 @@ function LaabEntryApp({ userEmail }) {
   const [advToday, setAdvToday] = useState([]);   // เงินเบิกที่เบิกในวันที่เลือก
   const [openAdv, setOpenAdv] = useState([]);     // เงินเบิกที่ยังไม่ได้หักคืน (ทุกวัน)
   const [apToday, setApToday] = useState([]);     // จ่ายชำระเจ้าหนี้ในวันที่เลือก (บันทึกจากหน้าเจ้าหนี้)
+  const [whToday, setWhToday] = useState([]);     // รายการจากหน้าซื้อของ/คลังกลาง (ดูอย่างเดียว)
   const [view, setView] = useState("daily"); // "daily" | "dashboard" | "payables"
   const [showStaff, setShowStaff] = useState(false);
   const [showPayroll, setShowPayroll] = useState(false);
@@ -2210,11 +2251,11 @@ function LaabEntryApp({ userEmail }) {
   const loadDay = useCallback(async (d, cat) => {
     setDayLoading(true);
     try {
-      const [dd, po, pc, at, ad, ap] = await Promise.all([
+      const [dd, po, pc, at, ad, ap, wh] = await Promise.all([
         fetchDay(d), fetchPrevOf(d, cat), fetchPrevCash(d), fetchAttendance(d), fetchAdvancesOnDate(d),
-        fetchApPaymentsOnDate(d),
+        fetchApPaymentsOnDate(d), fetchWhOnDate(d),
       ]);
-      setDayState(dd); setPrevOf(po); setPrevCash(pc); setAttState(at); setAdvToday(ad); setApToday(ap);
+      setDayState(dd); setPrevOf(po); setPrevCash(pc); setAttState(at); setAdvToday(ad); setApToday(ap); setWhToday(whSplit(wh));
       setRemoteChanged(false);
     } catch (e) {
       setSaveError("โหลดข้อมูลวันที่ " + d + " ไม่สำเร็จ: " + String((e && e.message) || e));
@@ -2794,14 +2835,18 @@ function LaabEntryApp({ userEmail }) {
   const advBank = r2(advToday.filter((a) => a.payment_method !== "cash").reduce((s, a) => s + A(a.amount), 0));
   const advTotal = r2(advCash + advBank);
 
-  const totalOut = r2(active.reduce((s, l) => s + A(l.amt), 0) + wageToday);
-  const byGrp = (g) => r2(active.filter((l) => CATS[l.cat].grp === g).reduce((s, l) => s + A(l.amt), 0));
+  /* ของจากหน้าซื้อของ/คลังกลาง (ลงบัญชีแล้วที่หน้าคลัง) — นับเป็นรายจ่ายวันนี้ และเงินสดที่ออกจากลิ้นชัก */
+  const whCost = r2(whToday.reduce((s, w) => s + w.cost, 0));
+  const whCash = r2(whToday.reduce((s, w) => s + w.cash, 0));
+  const totalOut = r2(active.reduce((s, l) => s + A(l.amt), 0) + wageToday + whCost);
+  const byGrp = (g) => r2(active.filter((l) => CATS[l.cat].grp === g).reduce((s, l) => s + A(l.amt), 0)
+    + whToday.filter((w) => w.grp === g).reduce((s, w) => s + w.cost, 0));
   const food = byGrp("food"), bevT = byGrp("bev"), labor = r2(byGrp("labor") + wageToday), ops = byGrp("ops");
   const prime = r2(food + bevT + labor);
   const nsTotal = r2(active.filter((l) => payOf(l) === "ns").reduce((s, l) => s + A(l.amt), 0));
   /* จ่ายเจ้าหนี้ด้วยเงินสดวันนี้ (บันทึกที่หน้าเจ้าหนี้) — เงินออกจากลิ้นชักจริง แต่ไม่ใช่ค่าใช้จ่ายใหม่ */
   const apCash = r2(apToday.filter((p) => p.payment_method === "cash").reduce((s, p) => s + A(p.amount), 0));
-  const cashPaid = r2(active.filter((l) => PAY[payOf(l)].out).reduce((s, l) => s + A(l.amt), 0) + wageToday + advCash + apCash);
+  const cashPaid = r2(active.filter((l) => PAY[payOf(l)].out).reduce((s, l) => s + A(l.amt), 0) + wageToday + advCash + apCash + whCash);
   const profit = r2(totalIn - totalOut - grabComm);
   const cashShould = r2(A(cashOpen) + A(rev.cash) - cashPaid);
   const cashDiff = has(cashCount) ? r2(A(cashCount) - cashShould) : null;
@@ -2890,6 +2935,10 @@ function LaabEntryApp({ userEmail }) {
       L.push(T([d, "จ่ายเจ้าหนี้", p.voucher_no || "", "", p.vendor_name, p.payment_method === "cash" ? "จ่ายสด" : "โอน",
                 "", "", "", String(r2(A(p.amount))), ""]));
     });
+    whToday.forEach((w) => {
+      L.push(T([d, "หน้าซื้อของ/คลังกลาง", w.no, w.title, "", w.cash ? "จ่ายสด" : w.bank ? "โอน" : "กองกลาง/คลัง",
+                "", "", "", String(w.cost || w.cash || w.bank), ""]));
+    });
     L.push("");
     L.push(`รวมรับ\t${r2(totalIn)}`);
     L.push(`รวมจ่าย\t${r2(totalOut)}`);
@@ -2914,7 +2963,7 @@ function LaabEntryApp({ userEmail }) {
     });
     L.push(T(["", "", "รวมทั้งสิ้น", String(sumDr), String(sumCr)]));
     return L.join("\n");
-  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, vendors, att, employees, advToday, empById, apToday]);
+  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, vendors, att, employees, advToday, empById, apToday, whToday]);
 
   const doCopy = async () => {
     try {
@@ -4142,6 +4191,21 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               </div>
             )}
           </div>
+
+          {whToday.length > 0 && (
+            <div className="card">
+              <p className="eyebrow"><span>จากหน้าซื้อของ / คลังกลาง</span></p>
+              {whToday.map((w) => (
+                <div className="cashline" key={w.id}>
+                  <span>{w.title}{w.type === "wh_pay" ? "" : w.cash ? " · จ่ายสด" : w.bank ? " · โอน" : " · กองกลาง/คลัง"}</span>
+                  <span className="v">{money(w.type === "wh_pay" ? (w.cash || w.bank) : w.cost)}</span>
+                </div>
+              ))}
+              {whCost !== 0 && <div className="cashsum"><span>รวมเป็นรายจ่ายวันนี้</span><span className="v">{money(whCost)}</span></div>}
+              {whCash !== 0 && <div className="cashline" style={{ fontSize: 12, color: "var(--soft)" }}><span>เงินสดออกจากลิ้นชัก (รวมในยอดจ่ายเงินสดแล้ว)</span><span className="v">{money(whCash)}</span></div>}
+              <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href="./wh-test/">ไปหน้าคลังกลาง</a></p>
+            </div>
+          )}
 
           <div className="card">
             <p className="eyebrow"><span>ปิดร้าน — นับเงิน</span></p>
