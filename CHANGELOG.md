@@ -8,6 +8,11 @@
 
 ---
 
+## 12 พ.ย. 2569 — ปุ่มดาวน์โหลดไฟล์สำรอง: เพิ่มตารางคลังกลาง 5 ตาราง (บอสหนึ่งอนุญาต 00:40 "ก")
+- ไฟล์: `backup-src/main.js` (`TABLES` เพิ่ม inv_categories · inv_category_accounts · inv_entity_accounts · inv_purchases · inv_edit_log → รวม 43 ตาราง · `fetchAll` รองรับ pk หลายคอลัมน์ "category,entity" เรียงทุกคอลัมน์) → `npm run build:backup` → `backup/app.js`
+- ระบบสำรองทุกคืน (`backup_dispatch`) ดึงทุกตารางใน public อัตโนมัติอยู่แล้ว ไม่ต้องแก้
+- ไม่แตะร้านลาบ/FT · ไฟล์ตัวจริงร้านลาบ `laab-daily-entry-v17.jsx` ไม่ถูกแก้
+
 ## 5 พ.ย. 2569 — หน้า "สำรองข้อมูล" + ปุ่มดาวน์โหลดไฟล์สำรอง (บอสหนึ่งอนุญาต 15:10 "ทำปุ่มดาวน์โหลดไฟล์สำรอง ต่อเลย")
 - ไฟล์ใหม่: `backup-src/main.js` → build `npm run build:backup` → `backup/app.js` + `backup/index.html` (หน้า https://clsclassic-droid.github.io/laab-daily/backup/)
 - ทำงาน: ทุกตาราง 33 ตาราง (รายการอยู่ใน `TABLES` — **เพิ่มตาราง NS/GB ต้องเพิ่มที่นี่**) · นับแถว → ดึงทีละ 1,000 แถวเรียงตาม primary key → นับซ้ำ ถ้าไม่ตรงดึงใหม่ 1 ครั้ง ยังไม่ตรง = ไม่สร้างไฟล์ · ไฟล์ JSON เดียว `backup-laab-YYYY-MM-DD-HHmm.json` ({app, format, created_at, total_rows, data:{ตาราง:{pk,count,rows}}}) · แสดงผลสำรองอัตโนมัติจาก `backup_summary` (ยังไม่ติดตั้ง = แสดง "ยังไม่ได้ติดตั้ง")

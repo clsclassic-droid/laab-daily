@@ -18,6 +18,8 @@ const TABLES = [
   ["ft_materials", "id"], ["ft_material_payments", "id"], ["ft_operations", "op_id"],
   ["inv_locations", "code"], ["inv_items", "id"], ["inv_sale_items", "id"],
   ["inv_moves", "id"], ["inv_counts", "id"],
+  ["inv_categories", "name"], ["inv_category_accounts", "category,entity"], ["inv_entity_accounts", "entity"],
+  ["inv_purchases", "id"], ["inv_edit_log", "id"],
 ];
 const PAGE = 1000;
 
@@ -39,7 +41,10 @@ async function countRows(table) {
 async function fetchAll(table, pk, onPage) {
   const rows = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase.from(table).select("*").order(pk, { ascending: true }).range(from, from + PAGE - 1);
+    // pk หลายคอลัมน์ (เช่น "category,entity") เรียงทุกคอลัมน์ ให้ลำดับคงที่ตอนแบ่งหน้า
+    let q = supabase.from(table).select("*");
+    for (const col of pk.split(",")) q = q.order(col, { ascending: true });
+    const { data, error } = await q.range(from, from + PAGE - 1);
     if (error) throw new Error(`${table} แถว ${from}: ${error.message}`);
     rows.push(...(data || []));
     onPage(rows.length);
