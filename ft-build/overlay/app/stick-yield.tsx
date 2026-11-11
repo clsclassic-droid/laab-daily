@@ -52,7 +52,7 @@ export default function StickYield({recordId,date,items,disabled}:{recordId:stri
   {shown.map(s=>{const k=kg(s.meat),n=Number(draft[s.id]||0);return <label key={s.id}><span>{s.name} <small className="muted">({fmt(k)} กก.)</small></span>
    <input inputMode="numeric" value={draft[s.id]??''} disabled={locked} placeholder="ไม้" onChange={e=>setDraft({...draft,[s.id]:e.target.value.replace(/[^0-9.]/g,'')})}/>
    <small className="muted">{n>0&&k>0?fmt(Math.round(n/k*10)/10)+' ไม้/กก.':''}</small></label>;})}
-  {dirty&&<button type="button" disabled={locked} onClick={save}>{busy?'กำลังบันทึก…':'บันทึกจำนวนไม้'}</button>}
+  {dirty&&<button type="button" className="stick-save" disabled={locked} onClick={save}>{busy?'กำลังบันทึก…':'บันทึกจำนวนไม้'}</button>}
   <small className="muted">เข้าสต๊อกไม้ปิ้งที่โรงงาน ให้ซัน/เกดเบิกในหน้าลูกชิ้นปิ้ง</small>
  </div>;
 }
