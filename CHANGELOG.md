@@ -8,6 +8,19 @@
 
 ---
 
+## 12 พ.ย. 2569 — คลังกลาง ขั้น 2: ลงบัญชีอัตโนมัติ + หน้าทดสอบ `wh-test/` (บอสหนึ่งอนุญาต 00:40 "ก")
+- ฐานข้อมูล: migration `wh_step2_posting` (สำเนา `wh-src/sql/02_posting.sql`)
+  - `journal_entries.source_id` (ผูกใบบัญชีกับแถวต้นทาง) · source_type ใหม่ `wh_purchase` · `wh_pay` · `wh_draw` · `inv_moves.unit_vat`
+  - trigger `inv_moves_a_wh_cost` (ก่อนบันทึกการเบิก/คืนคลังกลาง: ต้นทุน = ราคาเฉลี่ยตอนนั้น ไม่รวม VAT + VAT ต่อหน่วย · ของไม่พอ = ไม่ให้บันทึก · แก้ = คิดใหม่)
+  - trigger `inv_purchases_wh_post` / `inv_moves_wh_post` → `wh_post_purchase` / `wh_post_move` ลงใบใหม่ทุกครั้งที่เพิ่ม/แก้/ลบ · เช็คสต๊อกคลังกลางไม่ติดลบ
+  - ซื้อให้ร้าน: Dr ต้นทุนตามหมวด (ไม่มีคู่ = 6900) + VAT ซื้อ / Cr เงินสด-ธนาคารร้าน (ร้านจ่ายเอง) หรือทุน 3010 (กองกลาง/ร้านอื่นจ่าย) · ร้านอื่นจ่ายแทน/จ่ายของคลังกลาง → ร้านที่จ่าย Dr 3010 / Cr เงินสด (WQ-) · ของคลังกลางจ่ายกองกลาง = ไม่ลงบัญชีตอนซื้อ · เบิก: Dr ต้นทุน + VAT ซื้อ (ตามที่เบิก) / Cr 3010 (WD-) · ร้านก๋วยเตี๋ยว (NS) ยังไม่มีผังบัญชี = ไม่ลง
+  - ทดสอบย้อนกลับผ่าน: เฉลี่ย 264.891 · แก้เบิก 15→10 ลงใหม่ · เบิกเกิน/ลบของที่เบิกแล้ว ถูกกัน · ลบการเบิก ใบหาย
+- หน้าใหม่: `wh-src/main.jsx` → `wh-test/app.js` + `wh-test/index.html` (https://clsclassic-droid.github.io/laab-daily/wh-test/) · เมนู ซื้อของ · คลัง/เบิก · สินค้า
+  - build: `npx esbuild wh-src/main.jsx --bundle --minify --format=iife --jsx=automatic --define:process.env.NODE_ENV='"production"' --outfile=wh-test/app.js`
+  - ทดสอบ Playwright จำลอง Supabase: ลงของใหม่ (เพิ่มสินค้า) · เบิก ส่งข้อมูลถูก ไม่มี error
+- **ยังไม่ได้แก้หน้าร้านลาบ**: ปุ่มบันทึกวันของร้านลาบลบใบบัญชีทั้งวันที่ไม่อยู่ใน `NON_DAY_SOURCES` → ใบ wh_* ของร้านลาบจะหายถ้ากดบันทึกวันเดียวกัน (ต้องเพิ่ม wh_purchase,wh_pay,wh_draw — รอบอส)
+- ไฟล์ตัวจริงร้านลาบ `laab-daily-entry-v17.jsx` ไม่ถูกแก้
+
 ## 12 พ.ย. 2569 — ปุ่มดาวน์โหลดไฟล์สำรอง: เพิ่มตารางคลังกลาง 5 ตาราง (บอสหนึ่งอนุญาต 00:40 "ก")
 - ไฟล์: `backup-src/main.js` (`TABLES` เพิ่ม inv_categories · inv_category_accounts · inv_entity_accounts · inv_purchases · inv_edit_log → รวม 43 ตาราง · `fetchAll` รองรับ pk หลายคอลัมน์ "category,entity" เรียงทุกคอลัมน์) → `npm run build:backup` → `backup/app.js`
 - ระบบสำรองทุกคืน (`backup_dispatch`) ดึงทุกตารางใน public อัตโนมัติอยู่แล้ว ไม่ต้องแก้
