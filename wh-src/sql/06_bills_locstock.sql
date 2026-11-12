@@ -42,7 +42,7 @@ language sql stable security invoker set search_path = public as $$
     union all
     select m.item_id, m.to_loc, m.qty from inv_moves m
       where m.to_loc is not null and m.move_date <= p_date
-        and not (m.from_loc = 'main' and m.to_loc <> 'main')        -- เบิกจากคลังกลาง = ร้านใช้แล้ว
+        and (coalesce(m.from_loc, '') <> 'main' or m.to_loc = 'main')   -- เบิกจากคลังกลางไปร้าน = ใช้แล้ว (ผลิต from_loc เป็น null ต้องนับ — แก้ใน migration wh_06b)
     union all
     select m.item_id, m.from_loc, -m.qty from inv_moves m
       where m.from_loc is not null and m.move_date <= p_date
