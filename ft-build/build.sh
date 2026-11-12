@@ -12,6 +12,7 @@ rm -rf app/api app/chatgpt-auth.ts app/layout.tsx app/backup-panel.tsx \
   lib/seed.json lib/db.ts lib/backup-sql.ts lib/backup-file.ts lib/overview-cache.ts lib/excel-receipts.ts lib/connector* \
   postcss.config.mjs pnpm-workspace.yaml next.config.ts vite.config.ts package.json pnpm-lock.yaml package-lock.json
 cp -r "$ROOT/ft-build/overlay/." "$WORK/"
+cp "$ROOT/shared/site-nav.jsx" "$WORK/src/site-nav.jsx"   # แถบเมนูกิจการร่วม
 npm install --no-audit --no-fund
 if [ "$MODE" = test ]; then FT_READ_ONLY=1 npx vite build; OUT=ft-test; else npx vite build; OUT=ft; fi
 rm -rf "$ROOT/$OUT" && cp -r dist "$ROOT/$OUT"

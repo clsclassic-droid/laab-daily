@@ -37,11 +37,9 @@ export default function AuthGate({children}:{children:ReactNode}){
  return <>{isReadOnly()&&<p className="notice" role="status" style={{margin:'8px 16px'}}>โหมดทดสอบ · อ่านอย่างเดียว ยังไม่บันทึกลงระบบจริง</p>}{children}</>;
 }
 
-// ปุ่มบนหัวเว็บ: สลับไปร้านลาบ + ออกจากระบบ (ใส่ใน header ของ app/page.tsx)
+// ปุ่มบนหัวเว็บ: ออกจากระบบ (ลิงก์ไปหน้าอื่นย้ายไปแถบเมนูกิจการ shared/site-nav.jsx) (ใส่ใน header ของ app/page.tsx)
 export function HeaderLinks(){
  return <div className="private" style={{display:'flex',gap:12}}>
-  <a href="../" style={{textDecoration:'underline'}}>ไปร้านลาบ</a>
-  <a href="../backup/" style={{textDecoration:'underline'}}>สำรองข้อมูล</a>
   <button type="button" onClick={()=>supabase.auth.signOut()} style={{background:'transparent',border:0,textDecoration:'underline',color:'inherit'}}>ออกจากระบบ</button>
  </div>;
 }

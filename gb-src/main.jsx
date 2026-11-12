@@ -1,6 +1,7 @@
 // หน้า "ลูกชิ้นปิ้ง" (ซัน = GBS, เกด = GBK) — 5 เมนู: ย้ายของ · ขาย · รายจ่าย · สรุป · สินค้า
 // ข้อมูลอยู่ใน Supabase: inv_* (สินค้า/ย้ายของ/นับของ) · daily_sales · cash_counts · items+daily_purchases · journal_*
 // ดึงข้อมูลทั้งตารางเป็นช่วง ทีละ 1,000 แถว + นับเทียบ (Supabase ตัดเหลือ 1,000 แถวโดยไม่เตือน)
+import SiteNav, { initialDate, initialParam } from "../shared/site-nav.jsx";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { supabase } from "../supabaseClient.js";
@@ -689,7 +690,7 @@ function ProductsTab({ day, ent, reload, setMsg }) {
 
 function App() {
   const [session, setSession] = useState(undefined);
-  const [date, setDate] = useState(todayTH()), [ent, setEnt] = useState("GBS"), [tab, setTab] = useState("move");
+  const [date, setDate] = useState(() => initialDate(todayTH())), [ent, setEnt] = useState(() => initialParam("ent", ["GBS", "GBK"], "GBS")), [tab, setTab] = useState("move");
   const [day, setDay] = useState(null), [msg, setMsg] = useState(""), [err, setErr] = useState("");
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -705,10 +706,10 @@ function App() {
   const p = { day, ent, reload, setMsg };
   return (
     <>
+      <SiteNav current={ent.toLowerCase()} date={date} />
       <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง ลบทิ้งได้ก่อนเริ่มใช้จริง</div>
       <header>
         <h1>ลูกชิ้นปิ้ง</h1>
-        <nav><a href="../">ร้านลาบ</a><a href="../ft/">โรงลูกชิ้น</a></nav>
       </header>
       <div className="bar">
         <button className="ghost sm" onClick={() => setDate(addDays(date, -1))}>‹</button>

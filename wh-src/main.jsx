@@ -3,6 +3,7 @@
 // ภาพรวมต่อกิจการ = ฟังก์ชัน wh_overview (รวมสมุดบัญชีที่ฐานข้อมูล)
 // ลงบัญชีอัตโนมัติที่ฐานข้อมูล (trigger wh_after_change → ใบบัญชี wh_purchase / wh_pay / wh_draw ผูก source_id)
 // ดึงข้อมูลทั้งตารางเป็นช่วง ทีละ 1,000 แถว + นับเทียบ (Supabase ตัดเหลือ 1,000 แถวโดยไม่เตือน)
+import SiteNav, { initialDate } from "../shared/site-nav.jsx";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { supabase } from "../supabaseClient.js";
@@ -778,7 +779,7 @@ function ItemsTab({ data, reload, setMsg }) {
 
 function App() {
   const [session, setSession] = useState(undefined);
-  const [date, setDate] = useState(todayTH()), [tab, setTab] = useState("ov");
+  const [date, setDate] = useState(() => initialDate(todayTH())), [tab, setTab] = useState("ov");
   const [data, setData] = useState(null), [msg, setMsg] = useState(""), [err, setErr] = useState("");
   const [billId, setBillId] = useState(null);   // บิลที่กำลังใส่สินค้า (อยู่รอดตอนเปลี่ยนวันที่)
   useEffect(() => {
@@ -802,10 +803,10 @@ function App() {
   const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
+      <SiteNav current="wh" date={date} />
       <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง (ลงบัญชีร้านด้วย) ลบทิ้งได้ก่อนเริ่มใช้จริง 1 ธ.ค.</div>
       <header>
         <h1>คลังกลาง</h1>
-        <nav><a href="../">ร้านลาบ</a><a href="../ft/">โรงลูกชิ้น</a><a href="../gb-test/">ลูกชิ้นปิ้ง</a></nav>
       </header>
       <div className="bar">
         <button className="ghost sm" onClick={() => setDate(addDays(date, -1))}>‹</button>

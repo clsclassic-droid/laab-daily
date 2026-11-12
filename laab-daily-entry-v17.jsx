@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { supabase, ENTITY } from "./supabaseClient.js";
+import SiteNav, { initialDate } from "./shared/site-nav.jsx";
 
 /* ═══════════════════════════════════════════════════════════
    หน้าจอบันทึกรายวัน ร้านลาบ (LS) — v15 (ต่อ Supabase)
@@ -2196,7 +2197,7 @@ function LaabEntryApp({ userEmail }) {
   const [vendors, setVendorsState] = useState({});
   const [grabPct, setGrabPctState] = useState("10");
 
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState(() => initialDate(todayISO()));   // ?d= จากแถบเมนูกิจการ
   const [dayLoading, setDayLoading] = useState(true);
   const [day, setDayState] = useState(freshDay());
   const [prevOf, setPrevOf] = useState({});
@@ -3217,6 +3218,8 @@ function LaabEntryApp({ userEmail }) {
 
   /* ═══════════ หน้าจอ ═══════════ */
   return (
+    <>
+    <SiteNav current="ls" date={date} />
     <div className="wrap">
       <style>{`
 @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -3626,9 +3629,6 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <h1>ร้านอีสาน/ลาบ<span className="sub">บันทึกรายวัน · สาขา LS · v17</span></h1>
         <div className="dright">
           <span className="userchip">{userEmail}</span>
-          <a className="navb" href="./ft/" style={{ textDecoration: "none", display: "inline-block" }}>โรงลูกชิ้น (FT)</a>
-          <a className="navb" href="./gb-test/" style={{ textDecoration: "none", display: "inline-block" }}>ลูกชิ้นปิ้ง (ทดสอบ)</a>
-          <a className="navb" href="./backup/" style={{ textDecoration: "none", display: "inline-block" }}>สำรองข้อมูล</a>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
           {view !== "daily" && (
             <button className="navb" onClick={() => { setView("daily"); loadDay(date, catalog); }}>← กลับไปบันทึกประจำวัน</button>
@@ -4338,5 +4338,6 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       {view === "dashboard" && <Dashboard />}
       {view === "payables" && <Payables />}
     </div>
+    </>
   );
 }
