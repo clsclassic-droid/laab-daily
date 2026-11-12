@@ -57,8 +57,19 @@ async function fetchStock() {
   return out;
 }
 
+/* สต๊อกทุกที่ ณ วันที่ (ฟังก์ชัน inv_loc_stock) ดึงทีละ 1,000 จนหมด */
+async function fetchLocStock(date) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = chk(await supabase.rpc("inv_loc_stock", { p_date: date }).order("item_id").order("location").range(from, from + 999));
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
 async function loadAll(date) {
-  const [items, cats, purchases, monthMoves, stock, credits, payments] = await Promise.all([
+  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock] = await Promise.all([
     fetchAll("inv_items", "*"),
     fetchAll("inv_categories", "*", (q) => q, "name"),
     fetchAll("inv_purchases", "*", (q) => q.eq("purchase_date", date)),
@@ -67,13 +78,18 @@ async function loadAll(date) {
     fetchStock(),
     fetchAll("inv_purchases", "*", (q) => q.eq("paid_from", "credit")),   // ซื้อเชื่อทุกวัน (ยอดค้าง)
     fetchAll("inv_purchase_payments", "*"),
+    fetchAll("inv_bills", "*"),                                                       // บิลยอดเงินก่อน
+    fetchAll("inv_purchases", "id,bill_id,amount", (q) => q.not("bill_id", "is", null)), // รายการที่ใส่ในบิลแล้ว
+    fetchLocStock(date),
   ]);
+  const billSum = {};
+  for (const l of billLines) billSum[l.bill_id] = r2((billSum[l.bill_id] || 0) + A(l.amount));
   cats.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   const moves = monthMoves.filter((m) => m.move_date === date);
   const paidBy = {};
   for (const y of payments) paidBy[y.purchase_id] = r2((paidBy[y.purchase_id] || 0) + A(y.amount));
   items.sort((a, b) => (a.category || "").localeCompare(b.category || "", "th") || a.name.localeCompare(b.name, "th"));
-  return { date, items, cats: cats.filter((c) => c.is_active), purchases, moves, monthMoves, stock, credits, payments, paidBy,
+  return { date, items, cats: cats.filter((c) => c.is_active), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
     itemById: Object.fromEntries(items.map((i) => [i.id, i])), stockById: Object.fromEntries(stock.map((s) => [s.item_id, s])) };
 }
 
@@ -104,11 +120,22 @@ const Num = ({ value, onChange, ph, w }) => (
 
 /* ── เมนูซื้อของ ── */
 const EMPTY = { id: null, name: "", cat: "", unit: "", tier2: false, qty: "", price: "", total: "", last: "total",
-  forLoc: "main", paidFrom: "pool", paidEnt: "LS", inv: false, vendor: "", note: "", paidNow: "", nowFrom: "pool", nowEnt: "LS" };
+  forLoc: "main", paidFrom: "pool", paidEnt: "LS", inv: false, vendor: "", note: "", paidNow: "", nowFrom: "pool", nowEnt: "LS", billId: null, origAmt: 0 };
+const billLeft = (data, b) => r2(A(b.amount) - (data.billSum[b.id] || 0));
+const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 
-function BuyTab({ data, reload, setMsg }) {
+function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   const [f, setF] = useState(EMPTY), [busy, setBusy] = useState(false), [err, setErr] = useState("");
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  // เลือกบิลที่จะใส่สินค้า → ใส่ร้านที่ซื้อ/จ่ายจาก/ใบกำกับ ตามบิลให้
+  useEffect(() => {
+    const b = billId && data.bills.find((x) => x.id === billId);
+    if (b) setF({ ...EMPTY, billId, vendor: b.vendor_name || "", paidFrom: b.paid_from, paidEnt: b.paid_entity || "LS", inv: b.has_tax_invoice });
+  }, [billId]);
+  const bill = f.billId ? data.bills.find((x) => x.id === f.billId) : null;
+  const left = bill ? r2(billLeft(data, bill) + A(f.origAmt)) : 0;   // แก้รายการเดิมในบิล = คืนยอดเดิมก่อน
+  const startBill = (b) => { setErr(""); setBillId(b.id); if (b.bill_date !== data.date) setDate(b.bill_date); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const endBill = () => { setBillId(null); setF(EMPTY); };
   const known = data.items.find((i) => i.name === f.name.trim());
   // พิมพ์ชื่อสินค้าที่มีอยู่ → ใส่หมวด/หน่วยให้
   const onName = (v) => {
@@ -130,6 +157,7 @@ function BuyTab({ data, reload, setMsg }) {
     if (!(total >= 0)) return setErr("ใส่ราคา");
     if (!known && !f.cat) return setErr("สินค้าใหม่ ต้องเลือกหมวด");
     if (!known && !f.unit.trim()) return setErr("สินค้าใหม่ ต้องใส่หน่วย");
+    if (bill && total > left + 0.004) return setErr(`เกินยอดบิล — บิลนี้เหลือให้ใส่อีก ${fmt(left, 2)} บาท`);
     setBusy(true);
     try {
       let itemId = known?.id;
@@ -137,10 +165,10 @@ function BuyTab({ data, reload, setMsg }) {
         itemId = chk(await supabase.from("inv_items").insert({ name, unit: f.unit.trim(), category: f.cat, tier: f.tier2 ? 2 : 1 })
           .select("id").single()).id;
       }
-      const row = { purchase_date: data.date, item_id: itemId, qty, unit_price: price, amount: total, has_tax_invoice: f.inv,
+      const row = { purchase_date: bill ? bill.bill_date : data.date, item_id: itemId, qty, unit_price: price, amount: total, has_tax_invoice: f.inv,
         for_loc: f.forLoc, paid_from: f.paidFrom, paid_entity: noEnt(f.paidFrom) ? null : f.paidEnt,
-        vendor_name: f.vendor.trim() || null, note: f.note.trim() || null };
-      const now = f.paidFrom === "credit" && !f.id ? A(f.paidNow) : 0;
+        vendor_name: f.vendor.trim() || null, note: f.note.trim() || null, bill_id: f.billId || null };
+      const now = f.paidFrom === "credit" && !f.id && !bill ? A(f.paidNow) : 0;
       if (now > total) throw new Error("จ่ายไปแล้วมากกว่ายอดซื้อ");
       if (f.id) chk(await supabase.from("inv_purchases").update(row).eq("id", f.id));
       else {
@@ -149,8 +177,11 @@ function BuyTab({ data, reload, setMsg }) {
         if (now > 0) chk(await supabase.from("inv_purchase_payments").insert({ purchase_id: id, pay_date: data.date, amount: now,
           paid_from: f.nowFrom, paid_entity: f.nowFrom === "pool" ? null : f.nowEnt, note: "จ่ายตอนซื้อ" }));
       }
-      setMsg(f.id ? "แก้รายการแล้ว" : "บันทึกแล้ว");
-      setF({ ...EMPTY, forLoc: f.forLoc, paidFrom: f.paidFrom, paidEnt: f.paidEnt, vendor: f.vendor, nowFrom: f.nowFrom, nowEnt: f.nowEnt });
+      const done = bill && r2(left - total) <= 0.004;
+      setMsg(done ? "บิลครบยอดแล้ว" : f.id ? "แก้รายการแล้ว" : "บันทึกแล้ว");
+      if (done) { setBillId(null); setF(EMPTY); }
+      else setF({ ...EMPTY, forLoc: f.forLoc, paidFrom: f.paidFrom, paidEnt: f.paidEnt, vendor: f.vendor, inv: bill ? f.inv : false,
+        nowFrom: f.nowFrom, nowEnt: f.nowEnt, billId: f.billId });
       await reload();
     } catch (e) { setErr(errText(e)); }
     setBusy(false);
@@ -159,7 +190,8 @@ function BuyTab({ data, reload, setMsg }) {
     const it = data.itemById[p.item_id] || {};
     setF({ id: p.id, name: it.name || "", cat: it.category || "", unit: it.unit || "", tier2: it.tier === 2, qty: String(p.qty),
       price: String(p.unit_price ?? ""), total: String(p.amount), last: "total", forLoc: p.for_loc, paidFrom: p.paid_from,
-      paidEnt: p.paid_entity || "LS", inv: p.has_tax_invoice, vendor: p.vendor_name || "", note: p.note || "", paidNow: "", nowFrom: "pool", nowEnt: "LS" });
+      paidEnt: p.paid_entity || "LS", inv: p.has_tax_invoice, vendor: p.vendor_name || "", note: p.note || "", paidNow: "", nowFrom: "pool", nowEnt: "LS",
+      billId: p.bill_id || null, origAmt: p.bill_id ? A(p.amount) : 0 });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const del = async (p) => {
@@ -173,8 +205,12 @@ function BuyTab({ data, reload, setMsg }) {
   const sum = rows.reduce((t, p) => t + A(p.amount), 0), sumVat = rows.reduce((t, p) => t + A(p.vat_amount), 0);
   return (
     <>
-      <div className="card">
-        <h2>{f.id ? "แก้รายการซื้อ" : "ลงของที่ซื้อ"}</h2>
+      <BillCard data={data} reload={reload} setMsg={setMsg} startBill={startBill} activeId={f.billId} />
+      <div className="card" style={bill ? { outline: "2px solid var(--accent, #2563eb)" } : null}>
+        <h2>{f.id ? "แก้รายการซื้อ" : bill ? "ใส่สินค้าในบิล" : "ลงของที่ซื้อ"}</h2>
+        {bill && <p className="warn small">บิล {dm(bill.bill_date)}{bill.vendor_name ? " · " + bill.vendor_name : ""} ยอด <b>{fmt(bill.amount, 2)}</b> บาท
+          · เหลือให้ใส่อีก <b>{fmt(left, 2)}</b> บาท{total ? <> → หลังบันทึกเหลือ <b>{fmt(r2(left - total), 2)}</b></> : null}
+          <button className="link" onClick={endBill}>เลิกใส่บิลนี้</button></p>}
         <div className="row">
           <label style={{ flex: "1 1 220px" }}>รายการ
             <input list="items" value={f.name} onChange={(e) => onName(e.target.value)} placeholder="พิมพ์ชื่อ (ชื่อใหม่ = เพิ่มสินค้าใหม่)" style={{ width: "100%" }} />
@@ -201,21 +237,21 @@ function BuyTab({ data, reload, setMsg }) {
             <select value={f.forLoc} onChange={(e) => set("forLoc", e.target.value)}>{LOCS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           </label>
           <label>จ่ายจาก
-            <select value={f.paidFrom} onChange={(e) => set("paidFrom", e.target.value)}>{PAID.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            <select value={f.paidFrom} disabled={!!bill} onChange={(e) => set("paidFrom", e.target.value)}>{PAID.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           </label>
           {!noEnt(f.paidFrom) && <label>ของร้าน
-            <select value={f.paidEnt} onChange={(e) => set("paidEnt", e.target.value)}>{ENTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            <select value={f.paidEnt} disabled={!!bill} onChange={(e) => set("paidEnt", e.target.value)}>{ENTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           </label>}
-          <label className="chk" style={{ paddingBottom: 12 }}><input type="checkbox" checked={f.inv} onChange={(e) => set("inv", e.target.checked)} /> มีใบกำกับภาษี</label>
+          <label className="chk" style={{ paddingBottom: 12 }}><input type="checkbox" checked={f.inv} disabled={!!bill} onChange={(e) => set("inv", e.target.checked)} /> มีใบกำกับภาษี</label>
         </div>
-        {f.paidFrom === "credit" && !f.id && <div className="row">
+        {f.paidFrom === "credit" && !f.id && !bill && <div className="row">
           <label>จ่ายไปแล้วตอนซื้อ (บาท)<Num value={f.paidNow} onChange={(v) => set("paidNow", v)} ph="0 = ยังไม่จ่าย" w="8em" /></label>
           {A(f.paidNow) > 0 && <label>จ่ายจาก<select value={f.nowFrom} onChange={(e) => set("nowFrom", e.target.value)}>{PAY_FROM.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
           {A(f.paidNow) > 0 && f.nowFrom !== "pool" && <label>ของร้าน<select value={f.nowEnt} onChange={(e) => set("nowEnt", e.target.value)}>{ENTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
         </div>}
         {f.paidFrom === "credit" && <p className="small muted">ซื้อเชื่อ: ยอดที่ยังไม่จ่ายขึ้นใน "หนี้ค่าของค้างจ่าย" ด้านล่าง กดจ่ายเมื่อจ่ายจริง{total && !f.id ? <> · ค้าง <b>{fmt(r2(total - A(f.paidNow)), 2)}</b> บาท</> : null}</p>}
         <div className="row">
-          <label style={{ flex: "1 1 160px" }}>ร้านที่ซื้อ<input value={f.vendor} onChange={(e) => set("vendor", e.target.value)} style={{ width: "100%" }} /></label>
+          <label style={{ flex: "1 1 160px" }}>ร้านที่ซื้อ<input value={f.vendor} disabled={!!bill} onChange={(e) => set("vendor", e.target.value)} style={{ width: "100%" }} /></label>
           <label style={{ flex: "1 1 160px" }}>หมายเหตุ<input value={f.note} onChange={(e) => set("note", e.target.value)} style={{ width: "100%" }} /></label>
         </div>
         <p className="small muted">
@@ -226,7 +262,7 @@ function BuyTab({ data, reload, setMsg }) {
         {err && <p className="red">{err}</p>}
         <div className="row">
           <button disabled={busy} onClick={save}>{busy ? "กำลังบันทึก…" : f.id ? "บันทึกที่แก้" : "บันทึก"}</button>
-          {f.id && <button className="ghost" onClick={() => setF(EMPTY)}>ยกเลิกแก้</button>}
+          {f.id && <button className="ghost" onClick={endBill}>ยกเลิกแก้</button>}
         </div>
       </div>
 
@@ -239,7 +275,7 @@ function BuyTab({ data, reload, setMsg }) {
               const it = data.itemById[p.item_id] || {};
               return (
                 <tr key={p.id} style={f.id === p.id ? { background: "var(--warn)" } : null}>
-                  <td>{it.name}<div className="small muted">{it.category}{p.vendor_name ? " · " + p.vendor_name : ""}{p.has_tax_invoice ? " · ใบกำกับ" : ""}{p.note ? " · " + p.note : ""}</div></td>
+                  <td>{it.name}<div className="small muted">{it.category}{p.vendor_name ? " · " + p.vendor_name : ""}{p.has_tax_invoice ? " · ใบกำกับ" : ""}{p.note ? " · " + p.note : ""}</div>{p.bill_id && <span className="tag">ในบิล</span>}</td>
                   <td className="r">{fmt(p.qty)} {it.unit}</td>
                   <td className="r">{fmt(p.amount, 2)}{A(p.vat_amount) ? <div className="small muted">VAT {fmt(p.vat_amount, 2)}</div> : null}</td>
                   <td className="nw">{LOC_NAME[p.for_loc]}</td>
@@ -253,6 +289,76 @@ function BuyTab({ data, reload, setMsg }) {
       </div>
       <DebtCard data={data} reload={reload} setMsg={setMsg} />
     </>
+  );
+}
+
+/* ── บิลยอดเงินก่อน รายละเอียดสินค้าทีหลัง (แบบ ก: บิลไม่ลงบัญชีเอง ลงตามรายการที่ใส่) ── */
+const BILL0 = { id: null, amt: "", vendor: "", from: "pool", ent: "LS", inv: false, note: "" };
+function BillCard({ data, reload, setMsg, startBill, activeId }) {
+  const [b, setB] = useState(null), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const rows = data.bills.map((x) => ({ x, left: billLeft(data, x) }));
+  const open = rows.filter((r) => r.left > 0.004 || r.left < -0.004).sort((a, c) => a.x.bill_date.localeCompare(c.x.bill_date));
+  const doneToday = rows.filter((r) => Math.abs(r.left) <= 0.004 && r.x.bill_date === data.date);
+  const save = async () => {
+    setErr("");
+    const amt = A(b.amt);
+    if (!(amt > 0)) return setErr("ใส่ยอดเงินในบิล");
+    if (b.id && amt + 0.004 < (data.billSum[b.id] || 0)) return setErr(`ยอดบิลต่ำกว่าสินค้าที่ใส่ไปแล้ว (${fmt(data.billSum[b.id], 2)})`);
+    setBusy(true);
+    try {
+      const row = { amount: amt, vendor_name: b.vendor.trim() || null, paid_from: b.from, paid_entity: noEnt(b.from) ? null : b.ent,
+        has_tax_invoice: b.inv, note: b.note.trim() || null };
+      if (b.id) {
+        if (data.billSum[b.id]) { const o = data.bills.find((x) => x.id === b.id);   // มีสินค้าแล้ว: เปลี่ยนได้แค่ยอดกับหมายเหตุ
+          Object.assign(row, { vendor_name: o.vendor_name, paid_from: o.paid_from, paid_entity: o.paid_entity, has_tax_invoice: o.has_tax_invoice }); }
+        chk(await supabase.from("inv_bills").update({ ...row, updated_at: new Date().toISOString() }).eq("id", b.id));
+      } else chk(await supabase.from("inv_bills").insert({ ...row, bill_date: data.date }));
+      setB(null); setMsg(b.id ? "แก้บิลแล้ว" : "ลงบิลแล้ว — กด \"ใส่สินค้า\" เมื่อพร้อม"); await reload();
+    } catch (e) { setErr(errText(e)); }
+    setBusy(false);
+  };
+  const del = async (x) => {
+    const n = data.billSum[x.id] ? " (สินค้าที่ใส่ไปแล้วยังอยู่ แค่ไม่ผูกกับบิล)" : "";
+    if (!window.confirm(`ลบบิล ${dm(x.bill_date)} ${x.vendor_name || ""} ${fmt(x.amount, 2)} บาท ?${n}`)) return;
+    try { chk(await supabase.from("inv_bills").delete().eq("id", x.id)); setMsg("ลบบิลแล้ว"); await reload(); }
+    catch (e) { window.alert(errText(e)); }
+  };
+  const edit = (x) => { setErr(""); setB({ id: x.id, amt: String(x.amount), vendor: x.vendor_name || "", from: x.paid_from, ent: x.paid_entity || "LS", inv: x.has_tax_invoice, note: x.note || "" }); };
+  const locked = b?.id && data.billSum[b.id];
+  const Row = ({ x, left }) => (
+    <tr style={activeId === x.id ? { background: "var(--warn)" } : null}>
+      <td className="nw">{dm(x.bill_date)}</td>
+      <td>{x.vendor_name || "—"}<div className="small muted">{PAID_NAME[x.paid_from]}{x.paid_entity ? " " + ENT_NAME[x.paid_entity] : ""}{x.has_tax_invoice ? " · ใบกำกับ" : ""}{x.note ? " · " + x.note : ""}</div></td>
+      <td className="r">{fmt(x.amount, 2)}</td>
+      <td className={"r b" + (left > 0.004 ? " red" : left < -0.004 ? " red" : "")}>{Math.abs(left) <= 0.004 ? "ครบ" : left < 0 ? "เกิน " + fmt(-left, 2) : fmt(left, 2)}</td>
+      <td className="nw">{left > 0.004 && <button className="link" onClick={() => startBill(x)}>ใส่สินค้า</button>}
+        <button className="link" onClick={() => edit(x)}>แก้</button><button className="link red" onClick={() => del(x)}>ลบ</button></td>
+    </tr>);
+  return (
+    <div className="card">
+      <div className="bar"><h2 style={{ margin: 0 }}>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : null}</h2>
+        {!b && <button className="sm" style={{ marginLeft: "auto" }} onClick={() => { setErr(""); setB({ ...BILL0 }); }}>+ ลงบิล (ยอดเงินก่อน)</button>}</div>
+      {b && <div style={{ background: "var(--warn)", padding: 8, borderRadius: 8, margin: "8px 0" }}>
+        <div className="row">
+          <label>ยอดเงินในบิล (บาท)<Num value={b.amt} onChange={(v) => setB({ ...b, amt: v })} w="8em" /></label>
+          <label style={{ flex: "1 1 140px" }}>ร้านที่ซื้อ<input value={b.vendor} disabled={locked} onChange={(e) => setB({ ...b, vendor: e.target.value })} style={{ width: "100%" }} /></label>
+        </div>
+        <div className="row">
+          <label>จ่ายจาก<select value={b.from} disabled={locked} onChange={(e) => setB({ ...b, from: e.target.value })}>{PAID.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+          {!noEnt(b.from) && <label>ของร้าน<select value={b.ent} disabled={locked} onChange={(e) => setB({ ...b, ent: e.target.value })}>{ENTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
+          <label className="chk" style={{ paddingBottom: 12 }}><input type="checkbox" checked={b.inv} disabled={locked} onChange={(e) => setB({ ...b, inv: e.target.checked })} /> มีใบกำกับภาษี</label>
+          <label style={{ flex: "1 1 120px" }}>หมายเหตุ<input value={b.note} onChange={(e) => setB({ ...b, note: e.target.value })} style={{ width: "100%" }} /></label>
+        </div>
+        <p className="small muted">{b.id ? "" : `บิลลงวันที่ ${dm(data.date)} · `}ยังไม่ลงบัญชีจนกว่าจะใส่สินค้า (เงินออกจากลิ้นชักจะขึ้นหน้าร้านตอนใส่สินค้า){locked ? " · บิลนี้มีสินค้าแล้ว แก้ได้แค่ยอดและหมายเหตุ" : ""}</p>
+        {err && <p className="red">{err}</p>}
+        <div className="row"><button disabled={busy} onClick={save}>{busy ? "กำลังบันทึก…" : b.id ? "บันทึกที่แก้" : "บันทึกบิล"}</button><button className="ghost" onClick={() => setB(null)}>ยกเลิก</button></div>
+      </div>}
+      {!open.length && !doneToday.length ? <p className="muted small">ไม่มีบิลค้าง · ใช้เมื่อซื้อหลายอย่างแต่ยังไม่มีเวลาลงทีละรายการ</p> : (
+        <div className="scroll"><table className="grid">
+          <thead><tr><th>วันที่</th><th>ร้านที่ซื้อ</th><th>ยอดบิล</th><th>ยังขาด</th><th></th></tr></thead>
+          <tbody>{open.map((r) => <Row key={r.x.id} {...r} />)}{doneToday.map((r) => <Row key={r.x.id} {...r} />)}</tbody>
+        </table></div>)}
+    </div>
   );
 }
 
@@ -399,6 +505,7 @@ function StockTab({ data, reload, setMsg }) {
       </div>
 
       <StockTable data={data} all={all} setAll={setAll} />
+      <LocStockTable data={data} />
     </>
   );
 }
@@ -446,6 +553,93 @@ function StockTable({ data, all, setAll }) {
   );
 }
 
+/* ── สต๊อกทุกที่ ณ สิ้นวันที่เลือก (inv_loc_stock) ── */
+const STOCK_COLS = [["main", "คลังกลาง"], ["factory", "โรงลูกชิ้น"], ["gbs", "ซัน"], ["gbk", "เกด"], ["ns", "ก๋วยเตี๋ยว"], ["ls", "ร้านลาบ"]];
+function locStockRows(data) {
+  const by = {};
+  for (const s of data.locStock) (by[s.item_id] ||= {})[s.location] = A(s.qty);
+  return data.items.filter((it) => by[it.id]).map((it) => ({ it, q: by[it.id] }));
+}
+function LocStockTable({ data }) {
+  const rows = locStockRows(data);
+  return (
+    <div className="card">
+      <h2>สต๊อกทุกที่ ณ สิ้นวันที่ {dm(data.date)}</h2>
+      {!rows.length ? <p className="muted">ไม่มีของคงเหลือ</p> : (
+        <div className="scroll"><table className="grid">
+          <thead><tr><th>สินค้า</th>{STOCK_COLS.map(([k, v]) => <th key={k}>{v}</th>)}</tr></thead>
+          <tbody>{rows.map(({ it, q }) => (
+            <tr key={it.id}><td>{it.name} <span className="small muted">{it.unit}</span></td>
+              {STOCK_COLS.map(([k]) => <td key={k} className={"r" + (q[k] < 0 ? " red b" : "")}>{q[k] ? fmt(q[k]) : ""}</td>)}</tr>))}</tbody>
+        </table></div>)}
+      <p className="small muted">นับจากการซื้อเข้าคลังกลาง + การย้ายของทุกหน้า (ลูกชิ้นปิ้ง · FT · คลังกลาง) ถึงสิ้นวันที่เลือก · ของที่เบิกจากคลังกลางไปร้านถือว่าใช้แล้ว ไม่ขึ้นเป็นสต๊อกร้าน · ตัวแดง = ติดลบ (ย้ายออกมากกว่าที่มี ควรเช็ค)</p>
+    </div>
+  );
+}
+
+/* ── ส่งออก CSV (เปิดได้ทั้ง Numbers และ Excel) — ดึงทีละ 1,000 แถว + นับเทียบ ผ่าน fetchAll ── */
+const csvCell = (v) => { const t = v == null ? "" : String(v); return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+function downloadCsv(name, head, rows) {
+  const text = "﻿" + [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+const LOC_ALL = { ...LOC_NAME, main: "คลังกลาง" };
+const KIND_NAME = { draw: "เบิก", waste: "ของเสีย", transfer: "ย้าย", return: "คืน", produce: "ผลิต", adjust: "ปรับยอดนับ", use: "ใช้", purchase: "ซื้อ" };
+async function exportCsv(kind, data) {
+  const from = monthStart(data.date), to = monthEnd(data.date), ym = data.date.slice(0, 7);
+  const it = (id) => data.itemById[id] || {};
+  if (kind === "buy") {
+    const rows = await fetchAll("inv_purchases", "*", (q) => q.gte("purchase_date", from).lte("purchase_date", to));
+    rows.sort((a, b) => a.purchase_date.localeCompare(b.purchase_date) || a.created_at.localeCompare(b.created_at));
+    const bill = Object.fromEntries(data.bills.map((b) => [b.id, `${dm(b.bill_date)} ${b.vendor_name || ""} ${b.amount}`.trim()]));
+    downloadCsv(`ซื้อของ-${ym}.csv`, ["วันที่", "รายการ", "หมวด", "จำนวน", "หน่วย", "ราคา/หน่วย", "ราคารวม", "VAT ซื้อ", "สำหรับ", "จ่ายจาก", "ของร้าน", "ใบกำกับ", "ร้านที่ซื้อ", "บิล", "หมายเหตุ"],
+      rows.map((p) => [p.purchase_date, it(p.item_id).name, it(p.item_id).category, p.qty, it(p.item_id).unit, p.unit_price, p.amount, p.vat_amount,
+        LOC_ALL[p.for_loc], PAID_NAME[p.paid_from], ENT_NAME[p.paid_entity] || "", p.has_tax_invoice ? "มี" : "", p.vendor_name, p.bill_id ? bill[p.bill_id] || "" : "", p.note]));
+    return rows.length;
+  }
+  if (kind === "move") {
+    const rows = await fetchAll("inv_moves", "*", (q) => q.gte("move_date", from).lte("move_date", to));
+    rows.sort((a, b) => a.move_date.localeCompare(b.move_date) || a.created_at.localeCompare(b.created_at));
+    downloadCsv(`ย้ายของ-เบิก-ของเสีย-${ym}.csv`, ["วันที่", "ประเภท", "รายการ", "จำนวน", "หน่วย", "จาก", "ไป", "ต้นทุน/หน่วย", "VAT/หน่วย", "ต้นทุนรวม", "ลงจากหน้า", "หมายเหตุ"],
+      rows.map((m) => [m.move_date, KIND_NAME[m.kind] || m.kind, it(m.item_id).name, m.qty, it(m.item_id).unit, LOC_ALL[m.from_loc] || "", LOC_ALL[m.to_loc] || "",
+        m.unit_cost ?? "", m.unit_vat ?? "", m.unit_cost != null ? r2(A(m.qty) * (A(m.unit_cost) + A(m.unit_vat))) : "", m.source, m.note]));
+    return rows.length;
+  }
+  if (kind === "pay") {
+    const rows = await fetchAll("inv_purchase_payments", "*", (q) => q.gte("pay_date", from).lte("pay_date", to));
+    rows.sort((a, b) => a.pay_date.localeCompare(b.pay_date));
+    const pur = Object.fromEntries(data.credits.map((p) => [p.id, p]));
+    downloadCsv(`จ่ายหนี้ซื้อเชื่อ-${ym}.csv`, ["วันที่จ่าย", "รายการ", "วันที่ซื้อ", "ร้านที่ซื้อ", "จำนวนเงิน", "จ่ายจาก", "ของร้าน", "หมายเหตุ"],
+      rows.map((y) => { const p = pur[y.purchase_id] || {}; return [y.pay_date, it(p.item_id).name, p.purchase_date, p.vendor_name, y.amount, PAID_NAME[y.paid_from], ENT_NAME[y.paid_entity] || "", y.note]; }));
+    return rows.length;
+  }
+  const rows = locStockRows(data);
+  downloadCsv(`สต๊อก-${data.date}.csv`, ["รายการ", "หมวด", "หน่วย", ...STOCK_COLS.map(([, v]) => v), "ราคาเฉลี่ยคลังกลาง (ตอนนี้)", "มูลค่าคลังกลาง (ตอนนี้)"],
+    rows.map(({ it: i, q }) => [i.name, i.category, i.unit, ...STOCK_COLS.map(([k]) => q[k] || ""), data.stockById[i.id]?.avg_cost ?? "", data.stockById[i.id]?.value ?? ""]));
+  return rows.length;
+}
+function ExportCard({ data }) {
+  const [busy, setBusy] = useState(""), [note, setNote] = useState("");
+  const ym = data.date.slice(0, 7);
+  const go = async (k) => {
+    setBusy(k); setNote("");
+    try { const n = await exportCsv(k, data); setNote(`ส่งออกแล้ว ${n} แถว (ครบตามที่นับได้)`); }
+    catch (e) { setNote("ส่งออกไม่สำเร็จ: " + errText(e)); }
+    setBusy("");
+  };
+  const B = ({ k, t }) => <button className="ghost" disabled={!!busy} onClick={() => go(k)}>{busy === k ? "กำลังดึง…" : t}</button>;
+  return (
+    <div className="card">
+      <h2>ส่งออกไฟล์ (CSV) เดือน {ym.slice(5)}/{ym.slice(0, 4)}</h2>
+      <div className="row"><B k="buy" t="ซื้อของ" /><B k="move" t="ย้ายของ/เบิก/ของเสีย" /><B k="pay" t="จ่ายหนี้ซื้อเชื่อ" /><B k="stock" t={`สต๊อก ณ ${dm(data.date)}`} /></div>
+      {note && <p className={"small" + (note.startsWith("ส่งออกไม่") ? " red" : "")}>{note}</p>}
+      <p className="small muted">เปิดได้ทั้ง Numbers และ Excel · เดือนตามวันที่ด้านบน · ดึงทีละ 1,000 แถวและนับเทียบ ถ้าไม่ครบจะไม่สร้างไฟล์</p>
+    </div>
+  );
+}
+
 /* ── เมนูภาพรวม: ทุกกิจการเดือนที่เลือก (จากสมุดบัญชี) + คลังกลาง ── */
 function OverviewTab({ data, setTab, setMsg }) {
   const [ov, setOv] = useState(null), [err, setErr] = useState("");
@@ -470,6 +664,7 @@ function OverviewTab({ data, setTab, setMsg }) {
   const debt = r2(data.credits.reduce((t, p) => t + Math.max(0, A(p.amount) - (data.paidBy[p.id] || 0)), 0));
   let drawVal = 0, wasteVal = 0;
   for (const f of Object.values(flow)) for (const [k, v] of Object.entries(f)) if (k.startsWith("v_")) { if (k === "v_waste") wasteVal += v; else drawVal += v; }
+  const openBills = data.bills.filter((b) => billLeft(data, b) > 0.004).length;
   const ym = data.date.slice(0, 7);
   const Stat = ({ t, v, sub, red }) => <div className="stat"><small>{t}</small><b className={red ? "red" : ""}>{v}</b>{sub && <small className="muted">{sub}</small>}</div>;
   return (
@@ -488,6 +683,7 @@ function OverviewTab({ data, setTab, setMsg }) {
         <div className="stats">
           <Stat t="มูลค่าของในคลังตอนนี้" v={fmt(stockVal, 2)} sub="ไม่รวม VAT" />
           <Stat t="หนี้ค่าของค้างจ่าย" v={fmt(debt, 2)} sub="ซื้อเชื่อที่ยังไม่จ่าย" red={debt > 0} />
+          {openBills > 0 && <Stat t="บิลรอใส่รายละเอียด" v={`${openBills} บิล`} sub="กดเมนูซื้อของ" red />}
           <Stat t={`เบิกออกเดือน ${ym.slice(5)}`} v={fmt(r2(drawVal), 2)} sub="เป็นต้นทุนร้านแล้ว" />
           <Stat t={`ของเสียเดือน ${ym.slice(5)}`} v={fmt(r2(wasteVal), 2)} red={wasteVal > 0} />
         </div>
@@ -507,6 +703,7 @@ function OverviewTab({ data, setTab, setMsg }) {
         <p className="small muted">จากสมุดบัญชีของแต่ละร้าน (ลงจากหน้าร้าน + หน้าคลังกลาง) · กำไรเบื้องต้น = ยอดขายรวม VAT − ต้นทุน − ค่าใช้จ่าย ยังไม่หัก VAT ขาย/ภาษี
           · โรงลูกชิ้นยังไม่มีต้นทุนก่อน พ.ย. 69 · ลูกชิ้นปิ้งยังไม่หักต้นทุนลูกชิ้น · ร้านลาบดูกำไรหลัง VAT ที่แดชบอร์ดร้านลาบ · ไม่แสดงเงินคงเหลือ เพราะบัญชียังไม่มียอดเงินตั้งต้น</p>
       </div>
+      <ExportCard data={data} />
     </>
   );
 }
@@ -583,6 +780,7 @@ function App() {
   const [session, setSession] = useState(undefined);
   const [date, setDate] = useState(todayTH()), [tab, setTab] = useState("ov");
   const [data, setData] = useState(null), [msg, setMsg] = useState(""), [err, setErr] = useState("");
+  const [billId, setBillId] = useState(null);   // บิลที่กำลังใส่สินค้า (อยู่รอดตอนเปลี่ยนวันที่)
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
@@ -601,7 +799,7 @@ function App() {
   if (session === undefined) return <p className="muted pad">กำลังโหลด…</p>;
   if (!session) return <Login />;
   const TABS = [["ov", "ภาพรวม"], ["buy", "ซื้อของ"], ["stock", "คลัง/เบิก"], ["items", "สินค้า"]];
-  const p = { data, reload, setMsg, setTab };
+  const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
       <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง (ลงบัญชีร้านด้วย) ลบทิ้งได้ก่อนเริ่มใช้จริง 1 ธ.ค.</div>
