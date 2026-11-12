@@ -19,7 +19,7 @@ const TABLES = [
   ["inv_locations", "code"], ["inv_items", "id"], ["inv_sale_items", "id"],
   ["inv_moves", "id"], ["inv_counts", "id"],
   ["inv_categories", "name"], ["inv_category_accounts", "category,entity"], ["inv_entity_accounts", "entity"],
-  ["inv_purchases", "id"], ["inv_edit_log", "id"],
+  ["inv_purchases", "id"], ["inv_purchase_payments", "id"], ["inv_edit_log", "id"],
 ];
 const PAGE = 1000;
 
