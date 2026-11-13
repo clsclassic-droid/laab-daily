@@ -1,3 +1,4 @@
+import "../shared/tokens.js";
 // หน้า "คลังกลาง + ซื้อของ" (หน้าทดสอบ) — 4 เมนู: ภาพรวม · ซื้อของ · คลัง/เบิก · สินค้า
 // ข้อมูล: inv_purchases (+ ซื้อเชื่อ inv_purchase_payments) · inv_moves (เบิก/คืน/ของเสีย from_loc/to_loc = 'main') · inv_items · inv_categories
 // ภาพรวมต่อกิจการ = ฟังก์ชัน wh_overview (รวมสมุดบัญชีที่ฐานข้อมูล)
@@ -340,7 +341,7 @@ function BillCard({ data, reload, setMsg, startBill, activeId }) {
     <div className="card">
       <div className="bar"><h2 style={{ margin: 0 }}>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : null}</h2>
         {!b && <button className="sm" style={{ marginLeft: "auto" }} onClick={() => { setErr(""); setB({ ...BILL0 }); }}>+ ลงบิล (ยอดเงินก่อน)</button>}</div>
-      {b && <div style={{ background: "var(--warn)", padding: 8, borderRadius: 8, margin: "8px 0" }}>
+      {b && <div style={{ background: "var(--warn)", padding: 8, borderRadius: "var(--r-input)", margin: "8px 0" }}>
         <div className="row">
           <label>ยอดเงินในบิล (บาท)<Num value={b.amt} onChange={(v) => setB({ ...b, amt: v })} w="8em" /></label>
           <label style={{ flex: "1 1 140px" }}>ร้านที่ซื้อ<input value={b.vendor} disabled={locked} onChange={(e) => setB({ ...b, vendor: e.target.value })} style={{ width: "100%" }} /></label>

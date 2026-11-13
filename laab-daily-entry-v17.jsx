@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { supabase, ENTITY } from "./supabaseClient.js";
 import SiteNav, { initialDate } from "./shared/site-nav.jsx";
+import { FONT } from "./shared/tokens.js";   // ชุดสีกลาง (บอสหนึ่งเลือก 1ก 13 พ.ย. 16:59)
 
 /* ═══════════════════════════════════════════════════════════
    หน้าจอบันทึกรายวัน ร้านลาบ (LS) — v15 (ต่อ Supabase)
@@ -676,7 +677,7 @@ const CHANNELS = [
   { key: "cash", label: "เงินสด", color: "#2A5A78" },
   { key: "transfer", label: "เงินโอน", color: "#8A6A1F" },
   { key: "grab", label: "เงินแกร๊ป", color: "#7A4E8C" },
-  { key: "thaichuaithai", label: "ไทยช่วยไทย", color: "#1E6E4A" },
+  { key: "thaichuaithai", label: "ไทยช่วยไทย", color: "#1F7A4D" },
 ];
 
 async function fetchDashboardDaily(fromDate, toDate) {
@@ -1004,7 +1005,7 @@ async function saveJournalsDB(date, journals) {
 /* ═══════════════════════════════════════════════════════════ */
 function LoadingScreen({ text }) {
   return (
-    <div style={{ fontFamily: "Sarabun,system-ui,sans-serif", color: "#6B7C72", padding: "40px 20px", textAlign: "center", fontSize: 15 }}>
+    <div style={{ fontFamily: FONT, color: "#56665D", padding: "40px 20px", textAlign: "center", fontSize: 15 }}>
       {text}
     </div>
   );
@@ -1025,23 +1026,23 @@ function LoginScreen() {
   };
 
   return (
-    <div style={{ maxWidth: 340, margin: "60px auto", fontFamily: "Sarabun,system-ui,sans-serif", color: "#1E2A24" }}>
+    <div style={{ maxWidth: 340, margin: "60px auto", fontFamily: FONT, color: "#1E2A24" }}>
       <h1 style={{ fontSize: 19, marginBottom: 4 }}>ร้านอีสาน/ลาบ</h1>
-      <p style={{ fontSize: 14, color: "#6B7C72", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
+      <p style={{ fontSize: 14, color: "#56665D", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
       <form onSubmit={submit}>
         <label style={{ display: "block", fontSize: 13.5, marginBottom: 4 }}>อีเมล</label>
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-          style={{ width: "100%", padding: 9, marginBottom: 12, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
+          style={{ width: "100%", padding: 9, marginBottom: 12, border: "1px solid #C9D3CB", borderRadius: "var(--r-input)", fontSize: 14, boxSizing: "border-box" }} />
         <label style={{ display: "block", fontSize: 13.5, marginBottom: 4 }}>รหัสผ่าน</label>
         <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-          style={{ width: "100%", padding: 9, marginBottom: 14, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
-        {err && <p style={{ color: "#A8443A", fontSize: 14, marginTop: -6, marginBottom: 12 }}>{err}</p>}
+          style={{ width: "100%", padding: 9, marginBottom: 14, border: "1px solid #C9D3CB", borderRadius: "var(--r-input)", fontSize: 14, boxSizing: "border-box" }} />
+        {err && <p style={{ color: "#B3261E", fontSize: 14, marginTop: -6, marginBottom: 12 }}>{err}</p>}
         <button type="submit" disabled={busy}
-          style={{ width: "100%", padding: 11, border: "none", borderRadius: 4, background: "#1E2A24", color: "#FBFAF6", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>
+          style={{ width: "100%", padding: 11, border: "none", borderRadius: "var(--r-btn)", background: "#1E2A24", color: "#FBFAF6", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>
           {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
         </button>
       </form>
-      <p style={{ fontSize: 13, color: "#6B7C72", marginTop: 18, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: "#56665D", marginTop: 18, lineHeight: 1.6 }}>
         ยังไม่มีบัญชี — ให้บอสหนึ่งสร้างให้ผ่าน Supabase Dashboard (Authentication → Users → Add user)
       </p>
     </div>
@@ -1112,7 +1113,7 @@ function StackedBarChart({ rows, series, height = 190, formatValue }) {
         return (
           <g key={f}>
             <line x1={padL} x2={width - padR} y1={y} y2={y} stroke="#E3E9E0" strokeWidth={1} />
-            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#56665D" fontFamily={FONT}>
               {formatValue ? formatValue(max * f) : Math.round(max * f)}
             </text>
           </g>
@@ -1134,12 +1135,12 @@ function StackedBarChart({ rows, series, height = 190, formatValue }) {
             })}
             {total > 0 && (
               <text x={x + bw / 2} y={padT + chartH - yOffset - 4} textAnchor="middle" fontSize={8}
-                fill="#3A453E" fontFamily="'IBM Plex Mono',monospace">
+                fill="#3A453E" fontFamily={FONT}>
                 {formatValue ? formatValue(total) : Math.round(total)}
               </text>
             )}
             {r.tick && (
-              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
+              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#56665D" fontFamily={FONT}>
                 {r.tick}
               </text>
             )}
@@ -1167,7 +1168,7 @@ function ProfitBarChart({ rows, height = 200, formatValue, selected, onSelect })
       {ticks.map((t, k) => (
         <g key={k}>
           <line x1={padL} x2={width - padR} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? "#9AA79F" : "#E3E9E0"} strokeWidth={1} />
-          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">{fmt(t)}</text>
+          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#56665D" fontFamily={FONT}>{fmt(t)}</text>
         </g>
       ))}
       {rows.map((r, i) => {
@@ -1180,13 +1181,13 @@ function ProfitBarChart({ rows, height = 200, formatValue, selected, onSelect })
         return (
           <g key={r.date} onClick={() => onSelect && onSelect(isSel ? null : r.date)} style={{ cursor: "pointer" }}>
             <rect x={padL + i * barW} y={padT} width={barW} height={chartH} fill={isSel ? "#EEF2EC" : "transparent"} />
-            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1E6E4A" : "#A8443A"} opacity={selected && !isSel ? 0.55 : 1} />}
+            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1F7A4D" : "#B3261E"} opacity={selected && !isSel ? 0.55 : 1} />}
             {r.hasData && (
               <text x={x + bw / 2} y={v >= 0 ? y - 4 : y + h + 9} textAnchor="middle" fontSize={8}
-                fill={v >= 0 ? "#3A453E" : "#A8443A"} fontFamily="'IBM Plex Mono',monospace">{fmt(v)}</text>
+                fill={v >= 0 ? "#3A453E" : "#B3261E"} fontFamily={FONT}>{fmt(v)}</text>
             )}
             {r.tick && (
-              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#6B7C72" fontFamily="Sarabun,sans-serif">{r.tick}</text>
+              <text x={x + bw / 2} y={height - 5} textAnchor="middle" fontSize={8.5} fill="#56665D" fontFamily={FONT}>{r.tick}</text>
             )}
           </g>
         );
@@ -1219,7 +1220,7 @@ function ProfitTrendChart({ rows, height = 230, formatValue }) {
       {ticks.map((t, k) => (
         <g key={k}>
           <line x1={padL} x2={width - padR} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? "#9AA79F" : "#E3E9E0"} strokeWidth={1} />
-          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">{fmt(t)}</text>
+          <text x={padL - 6} y={yOf(t) + 3} textAnchor="end" fontSize={9} fill="#56665D" fontFamily={FONT}>{fmt(t)}</text>
         </g>
       ))}
       {rows.map((r, i) => {
@@ -1232,11 +1233,11 @@ function ProfitTrendChart({ rows, height = 230, formatValue }) {
         const label = THMON[mm - 1] + ((mm === 1 && i > 0) || (i === 0 && rows.length > 12) ? " " + String((yy + 543) % 100).padStart(2, "0") : "") + (r.partial ? "*" : "");
         return (
           <g key={r.period}>
-            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1E6E4A" : "#A8443A"} opacity={r.partial ? 0.45 : 1}>
+            {h > 0.4 && <rect x={x} y={y} width={bw} height={h} fill={v >= 0 ? "#1F7A4D" : "#B3261E"} opacity={r.partial ? 0.45 : 1}>
               <title>{`${thMonth(r.period)}: ${money(v)}`}</title></rect>}
             <text x={cx(i)} y={v >= 0 ? y - 4 : y + h + 10} textAnchor="middle" fontSize={8.5}
-              fill={v >= 0 ? "#3A453E" : "#A8443A"} fontFamily="'IBM Plex Mono',monospace">{fmt(v)}</text>
-            <text x={cx(i)} y={height - (rotate ? 8 : 6)} textAnchor={rotate ? "end" : "middle"} fontSize={9.5} fill="#4A5A50" fontFamily="Sarabun,sans-serif"
+              fill={v >= 0 ? "#3A453E" : "#B3261E"} fontFamily={FONT}>{fmt(v)}</text>
+            <text x={cx(i)} y={height - (rotate ? 8 : 6)} textAnchor={rotate ? "end" : "middle"} fontSize={9.5} fill="#4A5A50" fontFamily={FONT}
               transform={rotate ? `rotate(-40 ${cx(i)} ${height - 8})` : undefined}>{label}</text>
           </g>
         );
@@ -1266,7 +1267,7 @@ function LineChart({ rows, series, height = 180, formatValue }) {
         return (
           <g key={f}>
             <line x1={padL} x2={width - padR} y1={y} y2={y} stroke="#E3E9E0" strokeWidth={1} />
-            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#6B7C72" fontFamily="'IBM Plex Mono',monospace">
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#56665D" fontFamily={FONT}>
               {formatValue ? formatValue(max * f) : Math.round(max * f)}
             </text>
           </g>
@@ -1281,7 +1282,7 @@ function LineChart({ rows, series, height = 180, formatValue }) {
       {rows.map((r, i) => {
         const x = padL + i * stepX;
         return (
-          <text key={i} x={x} y={height - 4} textAnchor="middle" fontSize={9} fill="#6B7C72" fontFamily="Sarabun,sans-serif">
+          <text key={i} x={x} y={height - 4} textAnchor="middle" fontSize={9} fill="#56665D" fontFamily={FONT}>
             {r.label}
           </text>
         );
@@ -1828,12 +1829,12 @@ function Dashboard() {
   const vatByPeriod = {};
   (vatTrend || []).forEach((v) => { vatByPeriod[v.period] = v; });
   const expSeries = [
-    { key: "food", label: "ต้นทุนอาหาร/เครื่องดื่ม", color: "#A8443A" },
+    { key: "food", label: "ต้นทุนอาหาร/เครื่องดื่ม", color: "#B3261E" },
     { key: "labor", label: "ค่าแรง", color: "#2A5A78" },
     { key: "transport", label: "ค่าขนส่ง/น้ำมัน", color: "#8A6A1F" },
     { key: "waste_misc", label: "ของใช้สิ้นเปลือง/บรรจุภัณฑ์", color: "#7A4E8C" },
   ];
-  const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1E6E4A" }, { key: "expense", label: "รายจ่ายรวม", color: "#A8443A" }];
+  const trendSeries = [{ key: "revenue", label: "ยอดขาย", color: "#1F7A4D" }, { key: "expense", label: "รายจ่ายรวม", color: "#B3261E" }];
 
   const RangePicker = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}>
@@ -1879,16 +1880,16 @@ function Dashboard() {
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 22, marginBottom: 10 }}>
               <div><div style={{ fontSize: 13, color: "var(--soft)" }}>กำไรสะสมตั้งแต่ {thMonth(hist[0].period)}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: histLast.cum >= 0 ? "var(--ok)" : "var(--margin)" }}>{histSignMoney(histLast.cum)}</div></div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT, color: histLast.cum >= 0 ? "var(--ok)" : "var(--margin)" }}>{histSignMoney(histLast.cum)}</div></div>
               {histLastFull && <div><div style={{ fontSize: 13, color: "var(--soft)" }}>ค่าเฉลี่ยสะสม/เดือน (ถึง {thMonth(histLastFull.period)})</div>
-                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: "#C07A1A" }}>{histSignMoney(histLastFull.runAvg)}</div></div>}
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT, color: "#C07A1A" }}>{histSignMoney(histLastFull.runAvg)}</div></div>}
               {histBest && <div><div style={{ fontSize: 13, color: "var(--soft)" }}>เดือนที่ดีที่สุด</div>
-                <div style={{ fontSize: 22, fontWeight: 700 }}>{thMonth(histBest.period)} <span style={{ fontSize: 14, fontFamily: "'IBM Plex Mono',monospace", color: "var(--ok)" }}>{money(histBest.profitAfterVat)}</span></div></div>}
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{thMonth(histBest.period)} <span style={{ fontSize: 14, fontFamily: FONT, color: "var(--ok)" }}>{money(histBest.profitAfterVat)}</span></div></div>}
             </div>
             <ProfitTrendChart rows={histRows} formatValue={fmtK} />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 13 }}>
-              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไรหลังหัก VAT</span>
-              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1F7A4D", display: "inline-block", marginRight: 5 }} />กำไรหลังหัก VAT</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#B3261E", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
               <span><span style={{ width: 16, height: 3, background: "#C07A1A", display: "inline-block", marginRight: 5, verticalAlign: "middle" }} />ค่าเฉลี่ยสะสมตั้งแต่เริ่มธุรกิจ</span>
               {histLast.partial && <span style={{ color: "var(--soft)" }}>* = ยังไม่จบเดือน</span>}
             </div>
@@ -1926,7 +1927,7 @@ function Dashboard() {
             <StackedBarChart rows={salesRows} series={CHANNELS} formatValue={fmtK} />
             <ChartLegend series={CHANNELS} />
             <p className="eyebrow" style={{ marginTop: 18 }}><span>สรุปช่องทาง — {rangeLabel}</span></p>
-            <div style={{ display: "flex", height: 22, borderRadius: 4, overflow: "hidden", marginTop: 4, background: "var(--field)" }}>
+            <div style={{ display: "flex", height: 22, borderRadius: "var(--r-input)", overflow: "hidden", marginTop: 4, background: "var(--field)" }}>
               {CHANNELS.filter((c) => channelTotals[c.key] > 0).map((c) => (
                 <div key={c.key} style={{ width: `${channelTotal > 0 ? (channelTotals[c.key] / channelTotal) * 100 : 0}%`, background: c.color }} title={c.label} />
               ))}
@@ -1973,7 +1974,7 @@ function Dashboard() {
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginBottom: 10 }}>
               <div><div style={{ fontSize: 13, color: "var(--soft)" }}>กำไรรวมช่วงนี้</div>
-                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: profitSum.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(r2(profitSum.profit))}</div></div>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: FONT, color: profitSum.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(r2(profitSum.profit))}</div></div>
               <div><div style={{ fontSize: 13, color: "var(--soft)" }}>วันที่กำไร</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ok)" }}>{profitSum.plus} วัน</div></div>
               <div><div style={{ fontSize: 13, color: "var(--soft)" }}>วันที่ขาดทุน</div>
@@ -1981,19 +1982,19 @@ function Dashboard() {
             </div>
             <ProfitBarChart rows={profitRows} formatValue={fmtK} selected={profitSel} onSelect={setProfitSel} />
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 13 }}>
-              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไร</span>
-              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1F7A4D", display: "inline-block", marginRight: 5 }} />กำไร</span>
+              <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#B3261E", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
             </div>
             {profitPick && (
               <div style={{ marginTop: 12, padding: "10px 14px", border: "1px solid var(--line, #DCE3D8)", borderRadius: 6, background: "#FAFBF8", fontSize: 13.5, lineHeight: 1.75 }}>
                 <b>{thDate(profitPick.date)}</b>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", columnGap: 16, fontFamily: "'IBM Plex Mono',monospace" }}>
-                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>ยอดขาย</span><span style={{ textAlign: "right" }}>{money(profitPick.sales)}</span>
-                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− VAT ขาย (7/107)</span><span style={{ textAlign: "right" }}>{money(profitPick.vat)}</span>
-                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ค่าคอม Grab</span><span style={{ textAlign: "right" }}>{money(profitPick.comm)}</span>
-                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ซื้อของ (ทุกหมวด)</span><span style={{ textAlign: "right" }}>{money(profitPick.purch)}</span>
-                  <span style={{ fontFamily: "Sarabun,sans-serif" }}>− ค่าแรง (เช็คชื่อ)</span><span style={{ textAlign: "right" }}>{money(profitPick.labor)}</span>
-                  <span style={{ fontFamily: "Sarabun,sans-serif", fontWeight: 700, borderTop: "1px solid #CBD5C6" }}>= กำไร</span>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", columnGap: 16, fontFamily: FONT }}>
+                  <span style={{ fontFamily: FONT }}>ยอดขาย</span><span style={{ textAlign: "right" }}>{money(profitPick.sales)}</span>
+                  <span style={{ fontFamily: FONT }}>− VAT ขาย (7/107)</span><span style={{ textAlign: "right" }}>{money(profitPick.vat)}</span>
+                  <span style={{ fontFamily: FONT }}>− ค่าคอม Grab</span><span style={{ textAlign: "right" }}>{money(profitPick.comm)}</span>
+                  <span style={{ fontFamily: FONT }}>− ซื้อของ (ทุกหมวด)</span><span style={{ textAlign: "right" }}>{money(profitPick.purch)}</span>
+                  <span style={{ fontFamily: FONT }}>− ค่าแรง (เช็คชื่อ)</span><span style={{ textAlign: "right" }}>{money(profitPick.labor)}</span>
+                  <span style={{ fontFamily: FONT, fontWeight: 700, borderTop: "1px solid #CBD5C6" }}>= กำไร</span>
                   <span style={{ textAlign: "right", fontWeight: 700, borderTop: "1px solid #CBD5C6", color: profitPick.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(profitPick.profit)}</span>
                 </div>
                 {profitPick.sales === 0 && profitPick.hasData && (
@@ -3222,85 +3223,85 @@ function LaabEntryApp({ userEmail }) {
     <SiteNav current="ls" date={date} />
     <div className="wrap">
       <style>{`
-@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-.wrap{--paper:#FBFAF6;--ink:#1E2A24;--soft:#56665D;--rule:#C9DCC8;--margin:#A8443A;
- --field:#F1F4EE;--dr:#2A5A78;--cr:#8A6A1F;--ns:#7A4E8C;--ok:#1E6E4A;--wait:#B4740E;
- font-family:'Sarabun',system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:18px}
+.wrap{--paper:var(--bg);--soft:var(--muted);--rule:var(--input-line);--margin:var(--red);--ok:var(--green);
+ --dr:#2A5A78;--cr:#8A6A1F;--ns:#7A4E8C;--wait:#B4740E;
+ font-family:var(--font);font-variant-numeric:tabular-nums;color:var(--ink);background:var(--paper);padding:18px}
 .wrap *{box-sizing:border-box}
+.wrap button,.wrap input,.wrap select,.wrap textarea{font-family:inherit}
 .hdr{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;
  border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:16px}
 .hdr h1{font-size:19px;font-weight:700;margin:0}
 .hdr .sub{font-size:13.5px;color:var(--soft);margin-left:10px;font-weight:400}
 .dright{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .dtext{font-size:14px;color:var(--soft);font-weight:600}
-.navb{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1;padding:6px 11px;min-height:40px;border:1px solid var(--rule);
- background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
+.navb{font-family:var(--font);font-size:14px;line-height:1;padding:6px 11px;min-height:40px;border:1px solid var(--rule);
+ background:#fff;color:var(--ink);border-radius:var(--r-btn);cursor:pointer}
 .navb:hover{background:var(--field)}
 .navb.active{background:var(--ink);color:#fff;border-color:var(--ink)}
 .navb.wide{font-size:13px;font-weight:600}
 .userchip{font-size:13px;color:var(--soft)}
 .dayrow{display:flex;align-items:center;gap:10px;padding:6px 2px;border-bottom:1px solid #EEF2EC;font-size:14px}
 .dayrow.cur{background:var(--field);font-weight:600}
-.dayjump{flex:1;text-align:left;border:none;background:transparent;font-family:'Sarabun',sans-serif;
+.dayjump{flex:1;text-align:left;border:none;background:transparent;font-family:var(--font);
  font-size:14px;color:var(--dr);cursor:pointer;text-decoration:underline;padding:2px}
-.dayv{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft);white-space:nowrap}
-.daydel{border:none;background:transparent;color:var(--margin);font-size:13px;cursor:pointer;font-family:'Sarabun',sans-serif}
+.dayv{font-family:var(--font);font-size:13px;color:var(--soft);white-space:nowrap}
+.daydel{border:none;background:transparent;color:var(--margin);font-size:13px;cursor:pointer;font-family:var(--font)}
 .savebox .ok2{font-size:13px;color:var(--ok);margin:0 0 8px;font-weight:600}
-.dateinput{font-family:'IBM Plex Mono',monospace;font-size:14px;border:1px solid var(--rule);
- background:#fff;border-radius:3px;padding:6px 9px;min-height:40px;color:var(--ink)}
+.dateinput{font-family:var(--font);font-size:14px;border:1px solid var(--rule);
+ background:#fff;border-radius:var(--r-input);padding:6px 9px;min-height:40px;color:var(--ink)}
 .cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:24px}
 @media(max-width:1000px){.cols{grid-template-columns:1fr;gap:18px}}
-.card{background:#fff;border:1px solid var(--rule);border-radius:4px;padding:14px 15px;margin-bottom:16px}
+.card{background:#fff;border:1px solid var(--rule);border-radius:var(--r-card);padding:14px 15px;margin-bottom:16px}
 .eyebrow{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--soft);
  font-weight:600;margin:0 0 10px;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .eyebrow .plain{letter-spacing:0;text-transform:none;font-size:13px;font-weight:400}
 
-.askbar{border:1px solid var(--margin);background:#FBEEEC;border-radius:4px;padding:11px 13px;margin-bottom:14px}
+.askbar{border:1px solid var(--margin);background:#FBEEEC;border-radius:var(--r-card);padding:11px 13px;margin-bottom:14px}
 .askbar p{margin:0 0 8px;font-size:14px;color:var(--margin);font-weight:600}
 .askbar .btns{display:flex;gap:7px;flex-wrap:wrap}
-.askbar button{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:6px 11px;
- border-radius:3px;cursor:pointer;border:1px solid var(--margin);background:#fff;color:var(--margin)}
+.askbar button{font-family:var(--font);font-size:13.5px;font-weight:600;padding:6px 11px;
+ border-radius:var(--r-input);cursor:pointer;border:1px solid var(--margin);background:#fff;color:var(--margin)}
 .askbar button.go{background:var(--margin);color:#fff}
 
 .revgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:start}
 @media(max-width:560px){.revgrid{grid-template-columns:repeat(2,1fr)}}
 .revcell label{display:block;font-size:13px;color:var(--soft);margin-bottom:3px}
-.revcell input{width:100%;text-align:right;font-family:'IBM Plex Mono',monospace;
+.revcell input{width:100%;text-align:right;font-family:var(--font);
  font-variant-numeric:tabular-nums;font-size:14px;border:1px solid transparent;
- background:var(--field);border-radius:3px;padding:8px;color:var(--ink)}
+ background:var(--field);border-radius:var(--r-input);padding:8px;color:var(--ink)}
 .revcell input:focus{outline:none;border-color:var(--dr);background:#fff}
 .grabline{margin-top:5px;font-size:13px;color:var(--soft);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .grabline input{width:38px;padding:3px 4px;text-align:center;font-size:13px;background:#fff;border:1px solid var(--rule)}
-.grabout{font-family:'IBM Plex Mono',monospace;color:var(--ns);font-weight:600}
+.grabout{font-family:var(--font);color:var(--ns);font-weight:600}
 .grand{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:6px;
  border-top:2px solid var(--ink);font-size:14px;font-weight:700}
-.grand .v{font-family:'IBM Plex Mono',monospace;font-size:17px}
+.grand .v{font-family:var(--font);font-size:17px}
 
 .cashgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 @media(max-width:480px){.cashgrid{grid-template-columns:1fr}}
 .cashline{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;
  padding:5px 0;border-bottom:1px solid #EEF2EC}
-.cashline .v{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.cashline .v{font-family:var(--font);font-variant-numeric:tabular-nums}
 .cashsum{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding-top:8px;
  border-top:2px solid var(--ink);font-size:14.5px;font-weight:700}
-.cashsum .v{font-family:'IBM Plex Mono',monospace;font-size:16px}
-.cashres{margin-top:9px;padding:8px 11px;border-radius:3px;font-size:14px;font-weight:600;text-align:center}
+.cashsum .v{font-family:var(--font);font-size:16px}
+.cashres{margin-top:9px;padding:8px 11px;border-radius:var(--r-input);font-size:14px;font-weight:600;text-align:center}
 .cashres.ok{background:#EDF6F0;color:var(--ok);border:1px solid var(--ok)}
 .cashres.bad{background:#FBEEEC;color:var(--margin);border:1px solid var(--margin)}
 
 .toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.tbtn{font-family:'Sarabun',sans-serif;font-size:14px;font-weight:600;padding:7px 12px;min-height:40px;
- border:1px solid var(--ink);background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
+.tbtn{font-family:var(--font);font-size:14px;font-weight:600;padding:7px 12px;min-height:40px;
+ border:1px solid var(--ink);background:#fff;color:var(--ink);border-radius:var(--r-btn);cursor:pointer}
 .tbtn:hover{background:var(--field)}
 .tbtn.ghost{border-color:var(--rule);color:var(--soft);font-weight:400}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--dr);outline-offset:1px}
-.search{flex:1 1 150px;min-width:0;font-family:'Sarabun',sans-serif;font-size:14px;
- border:1px solid var(--rule);background:#fff;border-radius:3px;padding:7px 10px;min-height:40px;color:var(--ink)}
+.search{flex:1 1 150px;min-width:0;font-family:var(--font);font-size:14px;
+ border:1px solid var(--rule);background:#fff;border-radius:var(--r-input);padding:7px 10px;min-height:40px;color:var(--ink)}
 .search:focus{outline:none;border-color:var(--dr)}
-.qbox{border:1px solid var(--dr);border-radius:3px;background:#F4F9FC;padding:6px;margin-bottom:12px}
+.qbox{border:1px solid var(--dr);border-radius:var(--r-input);background:#F4F9FC;padding:6px;margin-bottom:12px}
 .qres{display:flex;justify-content:space-between;gap:8px;width:100%;background:transparent;border:none;
- font-family:'Sarabun',sans-serif;font-size:14px;padding:5px 6px;cursor:pointer;color:var(--ink);
- text-align:left;border-radius:3px}
+ font-family:var(--font);font-size:14px;padding:5px 6px;cursor:pointer;color:var(--ink);
+ text-align:left;border-radius:var(--r-input)}
 .qres:hover{background:#fff}
 .qres em{font-style:normal;color:var(--soft);font-size:13px}
 
@@ -3311,31 +3312,31 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .boxhead em{font-style:normal;font-size:13px;color:var(--soft)}
 .cgroup{border-bottom:1px solid var(--rule)}
 .chead{width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:10px;
- background:transparent;border:none;padding:10px 2px;cursor:pointer;text-align:left;font-family:'Sarabun',sans-serif}
+ background:transparent;border:none;padding:10px 2px;cursor:pointer;text-align:left;font-family:var(--font)}
 .chead:hover{background:var(--field)}
 .ch-l{display:flex;align-items:baseline;gap:7px;min-width:0;flex-wrap:wrap}
 .chev{font-size:11px;color:var(--soft);flex:0 0 auto}
 .cname{font-size:14px;font-weight:700}
-.ccode{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
+.ccode{font-family:var(--font);font-size:13px;color:var(--soft)}
 .cmeta{font-size:13px;color:var(--soft)}
-.ctot{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;flex:0 0 auto}
+.ctot{font-family:var(--font);font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;flex:0 0 auto}
 .ctot.zero{color:var(--soft);font-weight:400}
 .cbody{padding:0 0 10px 12px}
 
 .irow{display:grid;
  grid-template-columns:minmax(0,1fr) 82px 56px 48px 26px 12px 54px 12px 76px;
  gap:5px;align-items:center;padding:4px 0;border-bottom:1px solid #F2F5F0;
- scroll-margin:80px;border-radius:3px}
+ scroll-margin:80px;border-radius:var(--r-input)}
 .irow.on{background:#F7FAF6}
 .irow.wait{background:#FFF8EC}
 .irow.hi{box-shadow:0 0 0 2px var(--dr);background:#F4F9FC}
 .iname{font-size:14.5px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
 .irow.on .iname{font-weight:600}
-.yhint{font-size:13px;color:var(--soft);font-family:'IBM Plex Mono',monospace}
+.yhint{font-size:13px;color:var(--soft);font-family:var(--font)}
 .cmpbtn{border:none;background:transparent;color:var(--dr);cursor:pointer;font-size:13px;
- padding:6px 4px;text-decoration:underline;font-family:'Sarabun',sans-serif}
-.f-vend,.f-pay{font-family:'Sarabun',sans-serif;font-size:13px;border:1px solid transparent;
- background:transparent;color:var(--soft);border-radius:3px;padding:8px 3px;width:100%;min-width:0}
+ padding:6px 4px;text-decoration:underline;font-family:var(--font)}
+.f-vend,.f-pay{font-family:var(--font);font-size:13px;border:1px solid transparent;
+ background:transparent;color:var(--soft);border-radius:var(--r-input);padding:8px 3px;width:100%;min-width:0}
 .f-vend:hover,.f-pay:hover{border-color:var(--rule);background:#fff}
 .f-vend:focus,.f-pay:focus{outline:none;border-color:var(--dr);background:#fff}
 .f-vend.ns{color:var(--ns);font-weight:600}
@@ -3344,8 +3345,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .f-pay.p-transfer{color:var(--dr)}
 .f-pay.p-credit{color:var(--cr)}
 .irow input.f-qty,.irow input.f-rate,.irow input.f-amt{width:100%;text-align:right;
- font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;
- border:1px solid transparent;background:transparent;border-radius:3px;padding:9px 5px;color:var(--soft)}
+ font-family:var(--font);font-variant-numeric:tabular-nums;font-size:14px;
+ border:1px solid transparent;background:transparent;border-radius:var(--r-input);padding:9px 5px;color:var(--soft)}
 .irow input.typed{background:var(--field);color:var(--ink);font-weight:600}
 .irow.on input.f-amt{background:var(--field);color:var(--ink)}
 .irow input:focus{outline:none;border-color:var(--dr);background:#fff}
@@ -3353,15 +3354,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .f-rate.flagup{background:#FBEEEC!important;border-color:var(--margin);color:var(--margin)!important}
 .f-rate.flagdown{background:#EDF6F0!important;border-color:var(--ok);color:var(--ok)!important}
 .iunit{font-size:13px;color:var(--soft)}
-.op{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#8E9A92;text-align:center}
+.op{font-family:var(--font);font-size:13px;color:#8E9A92;text-align:center}
 .rowmsg{grid-column:1/-1;font-size:13px;padding:1px 0 3px 2px}
 .rowmsg.up{color:var(--margin)}.rowmsg.down{color:var(--ok)}.rowmsg.wait{color:var(--wait);font-weight:600}
 
-.conf{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--margin);border-radius:3px;background:#FBEEEC}
+.conf{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--margin);border-radius:var(--r-input);background:#FBEEEC}
 .conf p{margin:0 0 8px;font-size:14px;color:var(--margin)}
 .confbtns{display:flex;gap:7px;flex-wrap:wrap}
-.confbtns button{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:7px 11px;
- border:1px solid var(--margin);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer;flex:1 1 200px}
+.confbtns button{font-family:var(--font);font-size:13.5px;font-weight:600;padding:7px 11px;
+ border:1px solid var(--margin);background:#fff;color:var(--margin);border-radius:var(--r-input);cursor:pointer;flex:1 1 200px}
 .confbtns button:hover{background:var(--margin);color:#fff}
 
 .linkrow{display:flex;gap:14px;flex-wrap:wrap}
@@ -3373,42 +3374,42 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .erow.drag{background:#EEF4EC;box-shadow:0 3px 12px rgba(0,0,0,.2);position:relative;z-index:2;opacity:1}
 .e-grip{display:flex;align-items:center;justify-content:center;width:26px;height:34px;padding:0;
  border:none;background:transparent;color:var(--soft);cursor:grab;touch-action:none;
- user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:3px}
+ user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:var(--r-input)}
 .e-grip:hover{background:#EEF1EC;color:var(--ink)}
 .e-grip:focus-visible{outline:2px solid var(--dr)}
 .erow.drag .e-grip{cursor:grabbing;color:var(--ink)}
-.erow input{font-family:'Sarabun',sans-serif;font-size:14px;border:1px solid var(--rule);
- background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0;width:100%}
+.erow input{font-family:var(--font);font-size:14px;border:1px solid var(--rule);
+ background:#fff;border-radius:var(--r-input);padding:6px 8px;color:var(--ink);min-width:0;width:100%}
 .erow input:focus{outline:none;border-color:var(--dr)}
 .e-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-.e-off{font-family:'Sarabun',sans-serif;font-size:13px;padding:6px 4px;border:1px solid var(--rule);
- background:#fff;color:var(--margin);border-radius:3px;cursor:pointer;white-space:nowrap}
+.e-off{font-family:var(--font);font-size:13px;padding:6px 4px;border:1px solid var(--rule);
+ background:#fff;color:var(--margin);border-radius:var(--r-input);cursor:pointer;white-space:nowrap}
 .e-off:hover{background:#FBEEEC}
-.e-del{font-family:'Sarabun',sans-serif;font-size:13px;padding:6px 4px;border:1px solid #D6453D;
- background:#fff;color:#D6453D;border-radius:3px;cursor:pointer;white-space:nowrap}
+.e-del{font-family:var(--font);font-size:13px;padding:6px 4px;border:1px solid #D6453D;
+ background:#fff;color:#D6453D;border-radius:var(--r-input);cursor:pointer;white-space:nowrap}
 .e-del:hover{background:#FBEEEC}
 .enote{font-size:13px;color:var(--soft);margin:8px 0 0;line-height:1.5}
 @media(max-width:680px){.erow{grid-template-columns:26px minmax(0,1fr) 56px;grid-template-areas:"gr nm nm" "gr vd un" "gr of of";gap:4px}
  .e-grip{grid-area:gr;align-self:start;height:40px}
  .e-name{grid-area:nm}.e-unit{grid-area:un}.e-vend{grid-area:vd}.e-actions{grid-area:of;justify-content:flex-start}}
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule)}
-.addrow input{font-family:'Sarabun',sans-serif;font-size:13.5px;border:1px solid var(--rule);
- background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0}
+.addrow input{font-family:var(--font);font-size:13.5px;border:1px solid var(--rule);
+ background:#fff;border-radius:var(--r-input);padding:6px 8px;color:var(--ink);min-width:0}
 .a-name{flex:1.4}.a-vend{flex:1}.a-unit{flex:0 0 58px}
-.addbtn{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:6px 11px;min-height:40px;
- border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:3px;cursor:pointer}
+.addbtn{font-family:var(--font);font-size:13.5px;font-weight:600;padding:6px 11px;min-height:40px;
+ border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:var(--r-input);cursor:pointer}
 .newlink{border:none;background:transparent;color:var(--dr);font-size:13px;cursor:pointer;
- font-family:'Sarabun',sans-serif;text-decoration:underline;padding:7px 2px}
+ font-family:var(--font);text-decoration:underline;padding:7px 2px}
 
-.alertbar{margin-bottom:11px;padding:8px 11px;border-radius:3px;font-size:13.5px;font-weight:600}
+.alertbar{margin-bottom:11px;padding:8px 11px;border-radius:var(--r-input);font-size:13.5px;font-weight:600}
 .alertbar.red{border:1px solid var(--margin);background:#FBEEEC;color:var(--margin)}
 .alertbar.amber{border:1px solid var(--wait);background:#FFF8EC;color:var(--wait)}
 .alertbar.info{border:1px solid var(--dr);background:#F4F9FC;color:var(--dr);font-weight:400}
 /* ── สรุปรายเดือน (แดชบอร์ด) ── */
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.kpi{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
+.kpi{border:1px solid var(--rule);border-radius:var(--r-card);padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
 .kpi .kk{font-size:13px;color:var(--soft)}
-.kpi .kn{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;color:var(--ink)}
+.kpi .kn{font-family:var(--font);font-size:21px;font-weight:600;color:var(--ink)}
 .kdelta{font-size:13px;color:var(--soft)}
 .mcsw{width:10px;height:10px;border-radius:2px;display:inline-block}
 .mcrow{display:grid;grid-template-columns:minmax(0,190px) minmax(0,1fr);gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--field)}
@@ -3418,24 +3419,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .mcbars{display:flex;flex-direction:column;gap:2px}
 .mcline{display:flex;align-items:center;gap:6px;min-height:12px}
 .mcbar{height:10px;border-radius:0 4px 4px 0;min-width:2px}
-.mcval{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink);white-space:nowrap}
+.mcval{font-family:var(--font);font-size:13px;color:var(--ink);white-space:nowrap}
 .mcval.soft{color:var(--soft)}
 /* ── หน้าเจ้าหนี้ ── */
-.aptotal{display:flex;align-items:baseline;gap:12px;margin:12px 0 14px;padding:10px 12px;background:var(--field);border-radius:4px;font-size:14px}
-.aptotal .n{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600}
+.aptotal{display:flex;align-items:baseline;gap:12px;margin:12px 0 14px;padding:10px 12px;background:var(--field);border-radius:var(--r-card);font-size:14px}
+.aptotal .n{font-family:var(--font);font-size:22px;font-weight:600}
 .soft{color:var(--soft)}
 .aprow{display:grid;grid-template-columns:minmax(0,1.4fr) 110px minmax(0,1.2fr) 96px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--field);font-size:14px}
 .aprow.aphead{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600;border-bottom:1px solid var(--rule)}
-.aprow .apamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600}
+.aprow .apamt{text-align:right;font-family:var(--font);font-weight:600}
 .aprow.aphead .apamt{font-family:inherit}
 .apold{font-size:13.5px}
 .apold em{font-style:normal;color:var(--soft)}
 .aplink{background:none;border:none;padding:0;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-align:left}
 .aplink.soft{color:var(--soft);font-size:13.5px}
-.aptag{margin-left:6px;font-size:12px;padding:1px 5px;border-radius:3px;background:#F2ECF5;color:var(--ns)}
-.apform{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;padding:10px 12px;margin:4px 0 8px;background:#F4F9FC;border:1px solid var(--dr);border-radius:4px}
+.aptag{margin-left:6px;font-size:12px;padding:1px 5px;border-radius:var(--r-chip);background:#F2ECF5;color:var(--ns)}
+.apform{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;padding:10px 12px;margin:4px 0 8px;background:#F4F9FC;border:1px solid var(--dr);border-radius:var(--r-card)}
 .apform label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--soft)}
-.apform input,.apform select{font-family:inherit;font-size:14px;padding:6px 7px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+.apform input,.apform select{font-family:inherit;font-size:14px;padding:6px 7px;border:1px solid var(--rule);border-radius:var(--r-input);background:#fff;color:var(--ink)}
 .apform .apnote{grid-column:1/-1}
 .apbtns{grid-column:1/-1;display:flex;gap:8px}
 .aphint{grid-column:1/-1;margin:0;font-size:13px;color:var(--wait)}
@@ -3445,7 +3446,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .apline{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;font-size:14px;padding:3px 0}
 .apline>span:last-child{text-align:right}
 .apline em{font-style:normal;font-size:13px;margin-left:4px}
-.apdel{margin-left:8px;font-size:13px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer}
+.apdel{margin-left:8px;font-size:13px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:var(--r-chip);cursor:pointer}
 @media (max-width:640px){
  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
  .mcrow{grid-template-columns:1fr}
@@ -3456,26 +3457,26 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
  .apline{grid-template-columns:1fr 1fr}
  .apline>span:nth-child(2){display:none}
 }
-.cmpbox{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dr);border-radius:3px;background:#F4F9FC}
+.cmpbox{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dr);border-radius:var(--r-input);background:#F4F9FC}
 .cmpbox h4{margin:0 0 7px;font-size:14px;font-weight:700}
 .cmprow{display:flex;justify-content:space-between;font-size:13.5px;padding:3px 0}
-.cmprow .p{font-family:'IBM Plex Mono',monospace}
-.cmpdate{font-family:'Sarabun',sans-serif;color:var(--soft);font-size:13px}
-.vdrop{z-index:50;background:#fff;border:1px solid var(--rule);border-radius:3px;
+.cmprow .p{font-family:var(--font)}
+.cmpdate{font-family:var(--font);color:var(--soft);font-size:13px}
+.vdrop{z-index:50;background:#fff;border:1px solid var(--rule);border-radius:var(--r-input);
   box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto}
-.vopt{padding:7px 9px;font-size:14px;font-family:'Sarabun',sans-serif;cursor:pointer;
+.vopt{padding:7px 9px;font-size:14px;font-family:var(--font);cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vopt:hover{background:#F4F9FC}
 .cmprow.best{color:var(--ok);font-weight:600}
 .cmpclose{border:none;background:transparent;color:var(--soft);cursor:pointer;float:right;font-size:15px}
 
-.metrics{border:2px solid var(--ink);border-radius:4px;overflow:hidden;margin-bottom:14px}
+.metrics{border:2px solid var(--ink);border-radius:var(--r-card);overflow:hidden;margin-bottom:14px}
 .metric{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 13px;
  border-bottom:1px solid var(--rule)}
 .metric:last-child{border-bottom:none}
 .metric .k{font-size:14px}
 .metric .k em{font-style:normal;color:var(--soft);font-size:13px;margin-left:5px}
-.metric .n{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;
+.metric .n{font-family:var(--font);font-variant-numeric:tabular-nums;font-size:14px;
  font-weight:500;white-space:nowrap}
 .metric .n span{color:var(--soft);font-size:13px;margin-left:6px}
 .metric.prime{background:var(--field)}
@@ -3487,21 +3488,21 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .metric.sub{background:#F7FAF6}
 .metric.sub .k,.metric.sub .n{color:var(--ns)}
 .good{color:var(--ok)}.warn{color:var(--margin)}
-.btn{width:100%;padding:11px;border:none;border-radius:4px;background:var(--ink);color:var(--paper);
- font-family:'Sarabun',sans-serif;font-size:14.5px;font-weight:600;cursor:pointer}
+.btn{width:100%;padding:11px;border:none;border-radius:var(--r-btn);background:var(--ink);color:var(--paper);
+ font-family:var(--font);font-size:14.5px;font-weight:600;cursor:pointer}
 .btn:hover{opacity:.88}
 
-.savebox{margin-top:12px;border:2px solid var(--ok);border-radius:4px;padding:12px;background:#F4FAF6}
+.savebox{margin-top:12px;border:2px solid var(--ok);border-radius:var(--r-card);padding:12px;background:#F4FAF6}
 .savebox h4{margin:0 0 4px;font-size:14px;font-weight:700;color:var(--ok)}
 .savebox .warn2{font-size:13px;color:var(--margin);margin:0 0 8px;font-weight:600}
-.savebox textarea{width:100%;height:120px;font-family:'IBM Plex Mono',monospace;font-size:13px;
- border:1px solid var(--rule);border-radius:3px;padding:7px;background:#fff;color:var(--ink);resize:vertical}
+.savebox textarea{width:100%;height:120px;font-family:var(--font);font-size:13px;
+ border:1px solid var(--rule);border-radius:var(--r-input);padding:7px;background:#fff;color:var(--ink);resize:vertical}
 .savebox .row2{display:flex;gap:7px;margin-top:8px}
-.savebox .row2 button{flex:1;font-family:'Sarabun',sans-serif;font-size:14px;font-weight:600;
- padding:8px;border-radius:3px;cursor:pointer;border:1px solid var(--ok);background:var(--ok);color:#fff}
+.savebox .row2 button{flex:1;font-family:var(--font);font-size:14px;font-weight:600;
+ padding:8px;border-radius:var(--r-input);cursor:pointer;border:1px solid var(--ok);background:var(--ok);color:#fff}
 .savebox .row2 button.ghost{background:#fff;color:var(--soft);border-color:var(--rule)}
 
-.ledger{background:#fff;border:1px solid var(--rule);border-radius:4px;padding:16px 18px 16px 24px;
+.ledger{background:#fff;border:1px solid var(--rule);border-radius:var(--r-card);padding:16px 18px 16px 24px;
  position:relative;overflow:hidden;margin-top:16px}
 .ledger::before{content:"";position:absolute;left:12px;top:0;bottom:0;width:1.5px;background:var(--margin);opacity:.5}
 .lhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -3510,14 +3511,14 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .je{margin-top:15px}
 .jetitle{font-size:13.5px;font-weight:600;padding-bottom:5px;border-bottom:1px solid var(--rule);
  display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.jeno{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
+.jeno{font-family:var(--font);font-size:13px;color:var(--soft)}
 .jline,.colhead,.balbar{display:grid;grid-template-columns:66px minmax(0,1fr) 84px 84px;gap:7px}
 @media(max-width:520px){.jline,.colhead,.balbar{grid-template-columns:58px minmax(0,1fr) 66px 66px;gap:4px}}
 .jline{align-items:baseline;padding:4px 0;font-size:14px;border-bottom:1px solid #EEF2EC}
-.jcode{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
+.jcode{font-family:var(--font);font-size:13px;color:var(--soft)}
 .jname{min-width:0;overflow-wrap:anywhere}
 .jname.indent{padding-left:14px;color:var(--soft)}
-.jamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px}
+.jamt{text-align:right;font-family:var(--font);font-variant-numeric:tabular-nums;font-size:14px}
 .jamt.d{color:var(--dr)}.jamt.c{color:var(--cr)}
 .colhead{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:600;padding:8px 0 3px}
 .colhead .r{text-align:right}
@@ -3526,7 +3527,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 @media(max-width:520px){.balbar{grid-template-columns:minmax(0,1fr) 66px 66px}}
 .balbar .lab{font-size:14px;font-weight:700}
 .seal{margin-top:10px;display:inline-flex;gap:7px;border:1.5px solid var(--ok);color:var(--ok);
- border-radius:3px;padding:5px 11px;font-size:14px;font-weight:600}
+ border-radius:var(--r-input);padding:5px 11px;font-size:14px;font-weight:600}
 .seal.bad{border-color:var(--margin);color:var(--margin)}
 .foot{margin-top:14px;font-size:13px;color:var(--soft);line-height:1.65}
 
@@ -3537,20 +3538,20 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .attname input{width:17px;height:17px;accent-color:var(--ink);flex:none;pointer-events:none}
 .attname span{overflow-wrap:anywhere}
 .attrate{font-size:13px;color:var(--soft);text-align:right;font-variant-numeric:tabular-nums}
-.attamt{font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:right;padding:6px 8px;
- border:1px solid var(--rule);border-radius:3px;background:var(--field);width:100%;box-sizing:border-box}
+.attamt{font-family:var(--font);font-size:14px;text-align:right;padding:6px 8px;
+ border:1px solid var(--rule);border-radius:var(--r-input);background:var(--field);width:100%;box-sizing:border-box}
 .attamt:disabled{background:transparent;border-color:transparent;color:var(--soft)}
 .attrow.on .attamt{background:#fff;color:var(--ink)}
 
-.staffbox{border:1px solid var(--rule);border-radius:4px;padding:11px;margin-bottom:13px;background:var(--field)}
+.staffbox{border:1px solid var(--rule);border-radius:var(--r-card);padding:11px;margin-bottom:13px;background:var(--field)}
 .emprow{display:grid;grid-template-columns:minmax(0,1fr) 92px 78px 46px auto;gap:7px;align-items:center;
  padding:5px 0;border-bottom:1px solid #EEF2EC}
 .emprow.off{opacity:.5}
-.e-name,.e-rate{font-family:'Sarabun',sans-serif;font-size:14px;padding:6px 8px;border:1px solid var(--rule);
- border-radius:3px;background:#fff;min-width:0;box-sizing:border-box}
-.e-rate{font-family:'IBM Plex Mono',monospace;text-align:right}
-.e-type,.prsel{font-family:'Sarabun',sans-serif;font-size:14px;padding:6px 5px;border:1px solid var(--rule);
- border-radius:3px;background:#fff;min-width:0;box-sizing:border-box}
+.e-name,.e-rate{font-family:var(--font);font-size:14px;padding:6px 8px;border:1px solid var(--rule);
+ border-radius:var(--r-input);background:#fff;min-width:0;box-sizing:border-box}
+.e-rate{font-family:var(--font);text-align:right}
+.e-type,.prsel{font-family:var(--font);font-size:14px;padding:6px 5px;border:1px solid var(--rule);
+ border-radius:var(--r-input);background:#fff;min-width:0;box-sizing:border-box}
 .e-unit{font-size:13px;color:var(--soft)}
 
 .advhead{font-size:14px;font-weight:600;margin:4px 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
@@ -3559,12 +3560,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px}
 .advname{overflow-wrap:anywhere}
 .advpay{font-size:13px;color:var(--soft)}
-.advamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.advamt{text-align:right;font-family:var(--font);font-variant-numeric:tabular-nums}
 
-.owedbox{margin-top:12px;border:1px solid var(--rule);border-radius:4px;padding:10px 11px;background:var(--field)}
+.owedbox{margin-top:12px;border:1px solid var(--rule);border-radius:var(--r-card);padding:10px 11px;background:var(--field)}
 .owedbox b{font-size:13.5px;display:block;margin-bottom:6px}
 .owedrow{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:3px 0}
-.owedrow span:last-child{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.owedrow span:last-child{font-family:var(--font);font-variant-numeric:tabular-nums}
 .owedrow .warn{color:var(--margin);font-weight:600}
 
 .prrow{display:grid;grid-template-columns:minmax(0,1.3fr) 108px 92px 92px 92px 72px;gap:8px;align-items:center;
@@ -3572,24 +3573,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .prrow.prhead{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600}
 .prrow.dim{opacity:.62}
 .prrow.prtot{border-bottom:none;border-top:2px solid var(--ink);font-weight:700;padding-top:9px;
- font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+ font-family:var(--font);font-variant-numeric:tabular-nums}
 .prname{overflow-wrap:anywhere}
 .prtype{font-size:13px;color:var(--soft)}
-.prnet{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
-.prin{font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:right;padding:5px 7px;width:100%;
- border:1px solid var(--rule);border-radius:3px;background:#fff;box-sizing:border-box}
+.prnet{text-align:right;font-family:var(--font);font-variant-numeric:tabular-nums}
+.prin{font-family:var(--font);font-size:14px;text-align:right;padding:5px 7px;width:100%;
+ border:1px solid var(--rule);border-radius:var(--r-input);background:#fff;box-sizing:border-box}
 .prin:disabled{background:transparent;border-color:transparent;color:var(--soft)}
 .trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 100px 108px;gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
 .trendrow.prhead{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
 .histrow{display:grid;grid-template-columns:minmax(96px,1.1fr) repeat(6,minmax(84px,1fr));gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
-.histrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.histrow>span:not(:first-child){text-align:right;font-family:var(--font);font-variant-numeric:tabular-nums}
 .histrow.prhead{font-size:12px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
 .histrow.prhead>span{font-family:inherit}
 .profitrow{display:grid;grid-template-columns:minmax(96px,1.2fr) repeat(6,minmax(70px,1fr));gap:8px;align-items:center;
  padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
-.profitrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.profitrow>span:not(:first-child){text-align:right;font-family:var(--font);font-variant-numeric:tabular-nums}
 .profitrow.prhead{font-size:12px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
 .profitrow.prhead>span{font-family:inherit}
 @media(max-width:640px){
