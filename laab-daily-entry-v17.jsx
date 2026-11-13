@@ -3,6 +3,13 @@ import { supabase, ENTITY } from "./supabaseClient.js";
 import SiteNav, { initialDate } from "./shared/site-nav.jsx";
 import { FONT } from "./shared/tokens.js";   // ชุดสีกลาง (บอสหนึ่งเลือก 1ก 13 พ.ย. 16:59)
 
+/* หน้านี้ใช้ได้ 2 ร้าน (13 พ.ย. 2569 บอสหนึ่งเลือก ก): ร้านลาบ LS (หน้าแรก) · ร้านก๋วยเตี๋ยว NS (ns/) — ENTITY มาจาก window.LAAB_ENTITY
+   รหัสบัญชีทุกตัวต่อท้ายด้วยรหัสร้าน (SFX) เช่น 1010-LS / 1010-NS */
+const SFX = "-" + ENTITY;
+const IS_NS = ENTITY === "NS";
+const SHOP = IS_NS ? "ร้านก๋วยเตี๋ยว" : "ร้านอีสาน/ลาบ";
+const HOME = IS_NS ? "../" : "./";   // ลิงก์ไปหน้าอื่นในเว็บ (หน้า NS อยู่ในโฟลเดอร์ ns/)
+
 /* ═══════════════════════════════════════════════════════════
    หน้าจอบันทึกรายวัน ร้านลาบ (LS) — v15 (ต่อ Supabase)
    ตรงตามผังบัญชี laab_coa.xlsx และกฎแปลงรายการ
@@ -14,10 +21,10 @@ import { FONT } from "./shared/tokens.js";   // ชุดสีกลาง (บ
 
 /* ── วิธีจ่าย → บัญชีที่เครดิต (กฎข้อ 7-9, 13) ── */
 const PAY = {
-  cash:     { label: "สด",        code: "1010-LS", out: true  },
-  transfer: { label: "โอน",       code: "1020-LS", out: false },
-  credit:   { label: "เชื่อ",     code: "2010-LS", out: false },
-  ns:       { label: "ก๋วยเตี๋ยว", code: "2100-LS", out: false },
+  cash:     { label: "สด",        code: `1010${SFX}`, out: true  },
+  transfer: { label: "โอน",       code: `1020${SFX}`, out: false },
+  credit:   { label: "เชื่อ",     code: `2010${SFX}`, out: false },
+  ...(IS_NS ? {} : { ns: { label: "ก๋วยเตี๋ยว", code: `2100${SFX}`, out: false } }),   // ซื้อค้างร้านก๋วยเตี๋ยว — มีแต่ร้านลาบ
 };
 const PAY_KEYS = Object.keys(PAY);
 const NS = "ร้านก๋วยเตี๋ยว";
@@ -28,40 +35,42 @@ const DB2PAY = { cash: "cash", transfer: "transfer", credit: "credit", intercomp
 
 /* ── 17 หมวด จัดเป็น 4 กลุ่ม (ปรับ 30 ส.ค. 2569 จากตารางรายจ่ายจริง — ยกเลิกหมวด "จิปาถะ" รวม) ── */
 const CATS = {
-  meat:   { label: "ค่าเนื้อ",             code: "5010-LS", name: "ต้นทุนเนื้อสัตว์",              grp: "food",  box: "food" },
-  veg:    { label: "ค่าผัก",               code: "5020-LS", name: "ต้นทุนผัก",                     grp: "food",  box: "food" },
-  market: { label: "ค่าเครื่องปรุง/ของแห้ง", code: "5030-LS", name: "ต้นทุนเครื่องปรุง/ของแห้ง",     grp: "food",  box: "food" },
-  rice:   { label: "ค่าข้าว/แป้ง",         code: "5050-LS", name: "ต้นทุนข้าว/แป้ง",               grp: "food",  box: "food" },
+  meat:   { label: "ค่าเนื้อ",             code: `5010${SFX}`, name: "ต้นทุนเนื้อสัตว์",              grp: "food",  box: "food" },
+  veg:    { label: "ค่าผัก",               code: `5020${SFX}`, name: "ต้นทุนผัก",                     grp: "food",  box: "food" },
+  market: { label: "ค่าเครื่องปรุง/ของแห้ง", code: `5030${SFX}`, name: "ต้นทุนเครื่องปรุง/ของแห้ง",     grp: "food",  box: "food" },
+  rice:   { label: "ค่าข้าว/แป้ง",         code: `5050${SFX}`, name: "ต้นทุนข้าว/แป้ง",               grp: "food",  box: "food" },
 
-  bev:    { label: "ค่าเครื่องดื่ม (ไม่มีแอลกอฮอล์)", code: "5040-LS", name: "ต้นทุนเครื่องดื่ม(ไม่มีแอลกอฮอล์)", grp: "bev", box: "bev" },
-  beer:   { label: "ค่าเครื่องดื่มแอลกอฮอล์", code: "5060-LS", name: "ต้นทุนเครื่องดื่มแอลกอฮอล์",    grp: "bev",   box: "bev" },
-  ice:    { label: "ค่าน้ำแข็ง",           code: "5070-LS", name: "ต้นทุนน้ำแข็ง",                  grp: "bev",   box: "bev" },
+  bev:    { label: "ค่าเครื่องดื่ม (ไม่มีแอลกอฮอล์)", code: `5040${SFX}`, name: "ต้นทุนเครื่องดื่ม(ไม่มีแอลกอฮอล์)", grp: "bev", box: "bev" },
+  beer:   { label: "ค่าเครื่องดื่มแอลกอฮอล์", code: `5060${SFX}`, name: "ต้นทุนเครื่องดื่มแอลกอฮอล์",    grp: "bev",   box: "bev" },
+  ice:    { label: "ค่าน้ำแข็ง",           code: `5070${SFX}`, name: "ต้นทุนน้ำแข็ง",                  grp: "bev",   box: "bev" },
 
-  bag:    { label: "ถุง/กล่อง",            code: "6210-LS", name: "ค่าถุงพลาสติก/กล่องใส่อาหาร",   grp: "ops",   box: "pack" },
-  cup:    { label: "แก้ว/ชาม",             code: "6220-LS", name: "ค่าแก้ว/ชาม",                   grp: "ops",   box: "pack" },
-  straw:  { label: "หลอด/ช้อน/ตะเกียบ",    code: "6230-LS", name: "ค่าหลอด/ช้อน/ตะเกียบ",         grp: "ops",   box: "pack" },
-  tissue: { label: "ทิชชู",                code: "6240-LS", name: "ค่าทิชชู/กระดาษเช็ดปาก",        grp: "ops",   box: "pack" },
-  clean:  { label: "น้ำยาล้างจาน/ของใช้",  code: "6250-LS", name: "ค่าน้ำยาล้างจาน/ทำความสะอาด",   grp: "ops",  box: "pack" },
+  bag:    { label: "ถุง/กล่อง",            code: `6210${SFX}`, name: "ค่าถุงพลาสติก/กล่องใส่อาหาร",   grp: "ops",   box: "pack" },
+  cup:    { label: "แก้ว/ชาม",             code: `6220${SFX}`, name: "ค่าแก้ว/ชาม",                   grp: "ops",   box: "pack" },
+  straw:  { label: "หลอด/ช้อน/ตะเกียบ",    code: `6230${SFX}`, name: "ค่าหลอด/ช้อน/ตะเกียบ",         grp: "ops",   box: "pack" },
+  tissue: { label: "ทิชชู",                code: `6240${SFX}`, name: "ค่าทิชชู/กระดาษเช็ดปาก",        grp: "ops",   box: "pack" },
+  clean:  { label: "น้ำยาล้างจาน/ของใช้",  code: `6250${SFX}`, name: "ค่าน้ำยาล้างจาน/ทำความสะอาด",   grp: "ops",  box: "pack" },
 
-  wage:   { label: "ค่าแรงคนงาน",          code: "6010-LS", name: "ค่าแรงคนงาน",                   grp: "labor", box: "daily" },
-  meal:   { label: "ค่าข้าวพนักงาน",       code: "6020-LS", name: "ค่าข้าวพนักงาน",                grp: "labor", box: "daily" },
-  fuel:   { label: "ค่าน้ำมัน/ขนส่ง",      code: "6510-LS", name: "ค่าขนส่ง/ค่าน้ำมัน",            grp: "ops",   box: "daily" },
-  gas:    { label: "ค่าแก๊ส",              code: "6140-LS", name: "ค่าแก๊ส",                       grp: "ops",   box: "daily" },
-  rentEq: { label: "ค่าเช่าอุปกรณ์/เต็น",  code: "6115-LS", name: "ค่าเช่าอุปกรณ์/เต็น",           grp: "ops",   box: "daily" },
-  misc:   { label: "ค่าใช้จ่ายเบ็ดเตล็ด",  code: "6900-LS", name: "ค่าใช้จ่ายเบ็ดเตล็ด",           grp: "ops",   box: "daily" },
+  wage:   { label: "ค่าแรงคนงาน",          code: `6010${SFX}`, name: "ค่าแรงคนงาน",                   grp: "labor", box: "daily" },
+  meal:   { label: "ค่าข้าวพนักงาน",       code: `6020${SFX}`, name: "ค่าข้าวพนักงาน",                grp: "labor", box: "daily" },
+  fuel:   { label: "ค่าน้ำมัน/ขนส่ง",      code: `6510${SFX}`, name: "ค่าขนส่ง/ค่าน้ำมัน",            grp: "ops",   box: "daily" },
+  gas:    { label: "ค่าแก๊ส",              code: `6140${SFX}`, name: "ค่าแก๊ส",                       grp: "ops",   box: "daily" },
+  rentEq: { label: "ค่าเช่าอุปกรณ์/เต็น",  code: `6115${SFX}`, name: "ค่าเช่าอุปกรณ์/เต็น",           grp: "ops",   box: "daily" },
+  misc:   { label: "ค่าใช้จ่ายเบ็ดเตล็ด",  code: `6900${SFX}`, name: "ค่าใช้จ่ายเบ็ดเตล็ด",           grp: "ops",   box: "daily" },
+  /* ร้านก๋วยเตี๋ยว: ลูกชิ้นที่เอาจากเกดไปขาย Grab จ่ายเงินสดให้เกด (ฝั่งเกดนับเป็นยอดขายจากจำนวนไม้อยู่แล้ว ไม่ลงซ้ำ) */
+  ...(IS_NS ? { gbk: { label: "ลูกชิ้น Grab (จ่ายเกด)", code: `5080${SFX}`, name: "ต้นทุนลูกชิ้น (ซื้อจากเกดขาย Grab)", grp: "food", box: "food" } } : {}),
 };
 const CAT_BY_CODE = Object.fromEntries(Object.entries(CATS).map(([k, v]) => [v.code, k]));
 
 /* ── 9 บัญชีค่าใช้จ่ายรายเดือน (นอกเหนือรายวัน) — ปิดยอดเป็นก้อนตอนสิ้นเดือน ── */
 const MONTHLY_ACCS = [
-  { code: "6110-LS", label: "ค่าเช่าร้าน" },
-  { code: "6120-LS", label: "ค่าไฟฟ้า" },
-  { code: "6130-LS", label: "ค่าน้ำประปา" },
-  { code: "6310-LS", label: "ค่าบริการเครื่อง POS" },
-  { code: "6320-LS", label: "ค่าอินเทอร์เน็ต/โทรศัพท์" },
-  { code: "6410-LS", label: "ค่าซ่อมแซมและบำรุงรักษา" },
-  { code: "6030-LS", label: "ค่าสวัสดิการพนักงาน" },
-  { code: "6340-LS", label: "ค่าการตลาด/โฆษณา" },
+  { code: `6110${SFX}`, label: "ค่าเช่าร้าน" },
+  { code: `6120${SFX}`, label: "ค่าไฟฟ้า" },
+  { code: `6130${SFX}`, label: "ค่าน้ำประปา" },
+  { code: `6310${SFX}`, label: "ค่าบริการเครื่อง POS" },
+  { code: `6320${SFX}`, label: "ค่าอินเทอร์เน็ต/โทรศัพท์" },
+  { code: `6410${SFX}`, label: "ค่าซ่อมแซมและบำรุงรักษา" },
+  { code: `6030${SFX}`, label: "ค่าสวัสดิการพนักงาน" },
+  { code: `6340${SFX}`, label: "ค่าการตลาด/โฆษณา" },
 ];
 
 /* ── สรุปรายเดือนตาม cost_group (แทนที่ชีต "กำไรก่อนภาษี" ใน Excel เดิม) ── */
@@ -86,18 +95,19 @@ const BOXES = [
 const catsIn = (box) => Object.keys(CATS).filter((c) => CATS[c].box === box);
 
 const ACC = {
-  "1010-LS": "เงินสดในร้าน",
-  "1020-LS": "เงินฝากธนาคาร",
-  "1030-LS": "ลูกหนี้ Grab",
-  "1031-LS": "ลูกหนี้ไทยช่วยไทย",
-  "1032-LS": "ลูกหนี้พนักงาน (เงินเบิกล่วงหน้า)",
-  "2010-LS": "เจ้าหนี้การค้า",
-  "2100-LS": "เจ้าหนี้ระหว่างกิจการ (ร้านก๋วยเตี๋ยว)",
-  "4010-LS": "รายได้ขาย-เงินสด",
-  "4020-LS": "รายได้ขาย-เงินโอน",
-  "4030-LS": "รายได้ขาย-Grab",
-  "4040-LS": "รายได้ขาย-ไทยช่วยไทย",
-  "6330-LS": "ค่าคอมมิชชั่นแพลตฟอร์ม",
+  [`1010${SFX}`]: "เงินสดในร้าน",
+  [`1020${SFX}`]: "เงินฝากธนาคาร",
+  [`1030${SFX}`]: "ลูกหนี้ Grab",
+  [`1031${SFX}`]: "ลูกหนี้ไทยช่วยไทย",
+  [`1032${SFX}`]: "ลูกหนี้พนักงาน (เงินเบิกล่วงหน้า)",
+  [`2010${SFX}`]: "เจ้าหนี้การค้า",
+  [`2100${SFX}`]: "เจ้าหนี้ระหว่างกิจการ (ร้านก๋วยเตี๋ยว)",
+  [`4010${SFX}`]: "รายได้ขาย-เงินสด",
+  [`4020${SFX}`]: "รายได้ขาย-เงินโอน",
+  [`4030${SFX}`]: "รายได้ขาย-Grab",
+  [`4040${SFX}`]: "รายได้ขาย-ไทยช่วยไทย",
+  [`6330${SFX}`]: "ค่าคอมมิชชั่นแพลตฟอร์ม",
+  [`3020${SFX}`]: IS_NS ? "ส่งเงินเข้ากองกลาง/ถอนใช้ส่วนตัว" : "ถอนใช้ส่วนตัว/ส่งเข้ากองกลาง",
 };
 const accName = (c) => ACC[c] || Object.values(CATS).find((x) => x.code === c)?.name || MONTHLY_ACCS.find((x) => x.code === c)?.label || c;
 
@@ -162,7 +172,7 @@ const shiftMonth = (period, n) => {
 
 const TKEY = { qty: "tq", rate: "tr", amt: "ta" };
 const blankRow = (vendor) => ({ qty: "", rate: "", amt: "", tq: false, tr: false, ta: false, vendor, pay: "" });
-const freshDay = () => ({ rows: {}, rev: { cash: "", transfer: "", grab: "", thai: "" }, cashOpen: "", cashCount: "", closed: false });
+const freshDay = () => ({ rows: {}, rev: { cash: "", transfer: "", grab: "", thai: "" }, cashOpen: "", cashCount: "", cashOut: "", cashOutTo: "pool", closed: false });
 
 /* หัวใจของ v15 — ระบบแก้ได้เฉพาะช่องที่ตัวเองเป็นเจ้าของ (เหมือนเดิม ไม่เปลี่ยน) */
 const recalc = (r) => {
@@ -224,7 +234,7 @@ async function fetchDay(date) {
       .select("item_id,qty,unit_price,amount,qty_manual,price_manual,amount_manual,vendor_name,payment_method_override")
       .eq("entity", ENTITY).eq("purchase_date", date),
     supabase.from("daily_sales").select("channel,amount").eq("entity", ENTITY).eq("sale_date", date),
-    supabase.from("cash_counts").select("opening_cash,counted_cash,is_closed")
+    supabase.from("cash_counts").select("opening_cash,counted_cash,is_closed,cash_out,cash_out_to")
       .eq("entity", ENTITY).eq("count_date", date).maybeSingle(),
   ]);
   if (pr.error) throw pr.error;
@@ -252,6 +262,8 @@ async function fetchDay(date) {
     rows, rev,
     cashOpen: cash && cash.opening_cash != null ? String(cash.opening_cash) : "",
     cashCount: cash && cash.counted_cash != null ? String(cash.counted_cash) : "",
+    cashOut: cash && A(cash.cash_out) ? String(cash.cash_out) : "",
+    cashOutTo: (cash && cash.cash_out_to) || "pool",
     closed: !!(cash && cash.is_closed),
   };
 }
@@ -468,7 +480,7 @@ async function setGrabPctDB(pct) {
    ═══════════ พนักงาน · ค่าแรง · เงินเบิกล่วงหน้า ═══════════
    คนรายวัน  : เช็คชื่อ → ลงค่าแรงและจ่ายสดวันนั้นเลย
    คนรายเดือน: ไม่ต้องเช็คชื่อ → ลงค่าแรงตอนปิดยอดสิ้นเดือน
-   เงินเบิกล่วงหน้า: ยังไม่ใช่ค่าแรง เก็บเป็นลูกหนี้ 1032-LS จนกว่าจะหักคืนสิ้นเดือน
+   เงินเบิกล่วงหน้า: ยังไม่ใช่ค่าแรง เก็บเป็นลูกหนี้ 1032 จนกว่าจะหักคืนสิ้นเดือน
    ═══════════════════════════════════════════════════════════ */
 async function fetchEmployees() {
   const { data, error } = await supabase.from("employees")
@@ -745,7 +757,7 @@ async function fetchAccountTotal(period, code) {
 async function fetchDashboardMonthly(periods) {
   const [results, deps, taxes] = await Promise.all([
     Promise.all(periods.map((p) => fetchMonthlySummary(p))),
-    Promise.all(periods.map((p) => fetchAccountTotal(p, "6420-LS"))),
+    Promise.all(periods.map((p) => fetchAccountTotal(p, `6420${SFX}`))),
     Promise.all(periods.map((p) => fetchAccountTotal(p, "7010"))),
   ]);
   return periods.map((p, i) => {
@@ -829,7 +841,7 @@ async function fetchVatSummary(period, vatVendorSet) {
    ยอดค้าง = ยอดซื้อเชื่อ/ค้างจ่ายร้านในเครือ (จาก daily_purchases ทุกวัน) − ยอดที่จ่ายแล้ว (vendor_payments)
    จ่ายชำระ → ใบสำคัญ PV-YYMMDD-n : เดบิต 2010/2100  เครดิต 1010 (สด) / 1020 (โอน)
    ═══════════════════════════════════════════════════════════ */
-const AP_ACC = { credit: "2010-LS", intercompany: "2100-LS" };
+const AP_ACC = { credit: `2010${SFX}`, intercompany: `2100${SFX}` };
 const pvNo = (d, n) => { const p = parts(d); return `PV-${String(p.y).slice(2)}${String(p.m).padStart(2, "0")}${String(p.d).padStart(2, "0")}-${n}`; };
 
 /* Supabase ส่งกลับได้ครั้งละไม่เกิน 1000 แถว — ดึงทีละหน้าจนครบ (ข้อมูลซื้อของเกิน 1000 แถวแล้วในไม่กี่เดือน) */
@@ -856,7 +868,7 @@ async function fetchPayables() {
       .eq("entity", ENTITY).order("payment_date").order("created_at")),
     fetchAllRows(() => supabase.from("journal_lines")
       .select("account_code,debit,credit,journal_entries!inner(entity)")
-      .eq("journal_entries.entity", ENTITY).in("account_code", ["2010-LS", "2100-LS"]).order("id")),
+      .eq("journal_entries.entity", ENTITY).in("account_code", [`2010${SFX}`, `2100${SFX}`]).order("id")),
   ]);
   if (storesRes.error) throw storesRes.error;
   const storePm = {};
@@ -918,7 +930,7 @@ async function addVendorPaymentDB({ date, vendor, account, amount, method, note 
     .select("id").single();
   if (e1) throw e1;
   try {
-    const cashAcc = method === "transfer" ? "1020-LS" : "1010-LS";
+    const cashAcc = method === "transfer" ? `1020${SFX}` : `1010${SFX}`;
     const { error: e2 } = await supabase.from("journal_lines").insert([
       { entry_id: entry.id, account_code: account, debit: amt, credit: 0, memo: vendor },
       { entry_id: entry.id, account_code: cashAcc, debit: 0, credit: amt, memo: vendor },
@@ -988,6 +1000,7 @@ async function saveJournalsDB(date, journals) {
   for (const j of journals) {
     const sourceType = j.no.endsWith("-A") ? "sales"
       : j.no.endsWith("-F") ? "staff_advance"
+      : j.no.endsWith("-G") ? "cash_out"
       : /ค้างจ่ายร้านก๋วยเตี๋ยว|ก๋วยเตี๋ยว/.test(j.title) ? "received_from_ns"
       : /ซื้อเชื่อ/.test(j.title) ? "purchase_credit"
       : /จ่ายโอน/.test(j.title) ? "purchase_transfer"
@@ -1028,7 +1041,7 @@ function LoginScreen() {
   return (
     <div style={{ maxWidth: 340, margin: "60px auto", fontFamily: FONT, color: "#1E2A24" }}>
       <h1 style={{ fontSize: 19, marginBottom: 4 }}>ร้านอีสาน/ลาบ</h1>
-      <p style={{ fontSize: 14, color: "#56665D", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
+      <p style={{ fontSize: 14, color: "#56665D", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · {SHOP}</p>
       <form onSubmit={submit}>
         <label style={{ display: "block", fontSize: 13.5, marginBottom: 4 }}>อีเมล</label>
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
@@ -1530,7 +1543,7 @@ function Payables() {
         <div className="aprow">
           <button className="aplink" onClick={() => setOpenKey(isOpen ? null : r.key)}>
             {isOpen ? "▾" : "▸"} {r.vendor}
-            {r.account === "2100-LS" && <span className="aptag">ร้านในเครือ</span>}
+            {r.account === `2100${SFX}` && <span className="aptag">ร้านในเครือ</span>}
           </button>
           <span className="apamt">{money(r.balance)}</span>
           <span className="apold">
@@ -1629,7 +1642,7 @@ function Payables() {
         </div>
       )}
       <p className="foot">
-        ยอดค้าง = ยอดซื้อที่วิธีจ่ายเป็น "เชื่อ" (2010-LS) หรือ "ก๋วยเตี๋ยว" (2100-LS) ทุกวัน − ยอดที่บันทึกจ่ายแล้ว ·
+        ยอดค้าง = ยอดซื้อที่วิธีจ่ายเป็น "เชื่อ" (2010{SFX}) หรือ "ก๋วยเตี๋ยว" (2100{SFX}) ทุกวัน − ยอดที่บันทึกจ่ายแล้ว ·
         การจ่ายตัดบิลเก่าสุดก่อนเสมอ · กด "บันทึกจ่าย" แล้วระบบออกใบสำคัญ <b>PV-ปปดดวว-ลำดับ</b> ให้เอง
         (เดบิต เจ้าหนี้ · เครดิต เงินสด 1010 หรือ ธนาคาร 1020) · ถ้าบันทึกผิด กดชื่อร้าน → ลบรายการจ่ายนั้นได้
       </p>
@@ -2291,6 +2304,9 @@ function LaabEntryApp({ userEmail }) {
   const rev = day.rev;
   const setCashOpen = (v) => { setDayState((d) => ({ ...d, cashOpen: v })); track(saveCashDB(date, { opening_cash: has(v) ? A(v) : null })); };
   const setCashCount = (v) => { setDayState((d) => ({ ...d, cashCount: v })); track(saveCashDB(date, { counted_cash: has(v) ? A(v) : null })); };
+  /* เอาเงินสดออกตอนปิดร้าน (เข้ากองกลาง / ฝากบัญชีร้าน) — บอสหนึ่งเลือก ก 13 พ.ย. 18:20 */
+  const setCashOut = (v) => { setDayState((d) => ({ ...d, cashOut: v })); track(saveCashDB(date, { cash_out: has(v) ? A(v) : 0 })); };
+  const setCashOutTo = (v) => { setDayState((d) => ({ ...d, cashOutTo: v })); track(saveCashDB(date, { cash_out_to: v })); };
   const setClosed = (v) => { setDayState((d) => ({ ...d, closed: v })); track(saveCashDB(date, { is_closed: v })); };
 
   const setGrabPct = (v) => { setGrabPctState(v); track(setGrabPctDB(v)); };
@@ -2403,10 +2419,10 @@ function LaabEntryApp({ userEmail }) {
 
   const payJournal = useMemo(() => {
     if (!payTotals || !payTotals.wage) return null;
-    const lines = [{ code: "6010-LS", dr: payTotals.wage, cr: 0 }];
-    if (payTotals.ded) lines.push({ code: "1032-LS", dr: 0, cr: payTotals.ded });
-    if (payTotals.cash) lines.push({ code: "1010-LS", dr: 0, cr: payTotals.cash });
-    if (payTotals.bank) lines.push({ code: "1020-LS", dr: 0, cr: payTotals.bank });
+    const lines = [{ code: `6010${SFX}`, dr: payTotals.wage, cr: 0 }];
+    if (payTotals.ded) lines.push({ code: `1032${SFX}`, dr: 0, cr: payTotals.ded });
+    if (payTotals.cash) lines.push({ code: `1010${SFX}`, dr: 0, cr: payTotals.cash });
+    if (payTotals.bank) lines.push({ code: `1020${SFX}`, dr: 0, cr: payTotals.bank });
     return { no: prNo(payPeriod), title: `ค่าแรงพนักงานรายเดือน ${thMonth(payPeriod)}`, lines };
   }, [payTotals, payPeriod]);
 
@@ -2457,8 +2473,8 @@ function LaabEntryApp({ userEmail }) {
     if (!monthlyTotals || !monthlyTotals.total) return null;
     const lines = [];
     monthlyTotals.rows.forEach((r) => { if (A(r.amount) > 0) lines.push({ code: r.code, dr: A(r.amount), cr: 0 }); });
-    if (monthlyTotals.cash) lines.push({ code: "1010-LS", dr: 0, cr: monthlyTotals.cash });
-    if (monthlyTotals.bank) lines.push({ code: "1020-LS", dr: 0, cr: monthlyTotals.bank });
+    if (monthlyTotals.cash) lines.push({ code: `1010${SFX}`, dr: 0, cr: monthlyTotals.cash });
+    if (monthlyTotals.bank) lines.push({ code: `1020${SFX}`, dr: 0, cr: monthlyTotals.bank });
     return { no: meNo(monthlyPeriod), title: `ค่าใช้จ่ายรายเดือน ${thMonth(monthlyPeriod)}`, lines };
   }, [monthlyTotals, monthlyPeriod]);
   const [monthlyClosing, setMonthlyClosing] = useState(false);
@@ -2502,6 +2518,8 @@ function LaabEntryApp({ userEmail }) {
   const cashOpen = has(day.cashOpen) ? day.cashOpen : (prevCash ? prevCash.v : "");
   const cashOpenAuto = !has(day.cashOpen) && !!prevCash;
   const cashCount = day.cashCount;
+  const cashOut = r2(A(day.cashOut));
+  const cashOutTo = day.cashOutTo || "pool";
 
   const [open, setOpen] = useState({ meat: true, wage: true, meal: true });
   const [compare, setCompare] = useState(null); // เก็บ id ของรายการที่กำลังเทียบราคาอยู่
@@ -2832,7 +2850,7 @@ function LaabEntryApp({ userEmail }) {
 
   /* ค่าแรงรายวันจากการเช็คชื่อ — เป็นค่าใช้จ่ายและจ่ายสดวันนั้นเลย */
   const wageToday = r2(employees.reduce((s, e) => s + A(att[e.id]), 0));
-  /* เงินเบิกล่วงหน้า — เงินออกจากลิ้นชักจริง แต่ยังไม่ใช่ค่าใช้จ่าย (เป็นลูกหนี้ 1032-LS) */
+  /* เงินเบิกล่วงหน้า — เงินออกจากลิ้นชักจริง แต่ยังไม่ใช่ค่าใช้จ่าย (เป็นลูกหนี้ 1032) */
   const advCash = r2(advToday.filter((a) => a.payment_method === "cash").reduce((s, a) => s + A(a.amount), 0));
   const advBank = r2(advToday.filter((a) => a.payment_method !== "cash").reduce((s, a) => s + A(a.amount), 0));
   const advTotal = r2(advCash + advBank);
@@ -2850,22 +2868,22 @@ function LaabEntryApp({ userEmail }) {
   const apCash = r2(apToday.filter((p) => p.payment_method === "cash").reduce((s, p) => s + A(p.amount), 0));
   const cashPaid = r2(active.filter((l) => PAY[payOf(l)].out).reduce((s, l) => s + A(l.amt), 0) + wageToday + advCash + apCash + whCash);
   const profit = r2(totalIn - totalOut - grabComm);
-  const cashShould = r2(A(cashOpen) + A(rev.cash) - cashPaid);
+  const cashShould = r2(A(cashOpen) + A(rev.cash) - cashPaid - cashOut);
   const cashDiff = has(cashCount) ? r2(A(cashCount) - cashShould) : null;
 
   /* ── สมุดรายวัน (สูตรเดิมทุกจุด) ── */
   const journals = useMemo(() => {
     const no = jeNo(date), out = [];
     const revLines = [];
-    if (A(rev.cash))     { revLines.push({ code: "1010-LS", dr: r2(A(rev.cash)), cr: 0 }); }
-    if (A(rev.transfer)) { revLines.push({ code: "1020-LS", dr: r2(A(rev.transfer)), cr: 0 }); }
-    if (grabGross)       { revLines.push({ code: "1030-LS", dr: grabNet, cr: 0 });
-                           if (grabComm) revLines.push({ code: "6330-LS", dr: grabComm, cr: 0 }); }
-    if (A(rev.thai))     { revLines.push({ code: "1031-LS", dr: r2(A(rev.thai)), cr: 0 }); }
-    if (A(rev.cash))     revLines.push({ code: "4010-LS", dr: 0, cr: r2(A(rev.cash)) });
-    if (A(rev.transfer)) revLines.push({ code: "4020-LS", dr: 0, cr: r2(A(rev.transfer)) });
-    if (grabGross)       revLines.push({ code: "4030-LS", dr: 0, cr: r2(grabGross) });
-    if (A(rev.thai))     revLines.push({ code: "4040-LS", dr: 0, cr: r2(A(rev.thai)) });
+    if (A(rev.cash))     { revLines.push({ code: `1010${SFX}`, dr: r2(A(rev.cash)), cr: 0 }); }
+    if (A(rev.transfer)) { revLines.push({ code: `1020${SFX}`, dr: r2(A(rev.transfer)), cr: 0 }); }
+    if (grabGross)       { revLines.push({ code: `1030${SFX}`, dr: grabNet, cr: 0 });
+                           if (grabComm) revLines.push({ code: `6330${SFX}`, dr: grabComm, cr: 0 }); }
+    if (A(rev.thai))     { revLines.push({ code: `1031${SFX}`, dr: r2(A(rev.thai)), cr: 0 }); }
+    if (A(rev.cash))     revLines.push({ code: `4010${SFX}`, dr: 0, cr: r2(A(rev.cash)) });
+    if (A(rev.transfer)) revLines.push({ code: `4020${SFX}`, dr: 0, cr: r2(A(rev.transfer)) });
+    if (grabGross)       revLines.push({ code: `4030${SFX}`, dr: 0, cr: r2(grabGross) });
+    if (A(rev.thai))     revLines.push({ code: `4040${SFX}`, dr: 0, cr: r2(A(rev.thai)) });
     if (revLines.length) out.push({ no: no + "-A", title: "บันทึกรายได้ประจำวัน", lines: revLines });
 
     const TITLE = {
@@ -2879,7 +2897,7 @@ function LaabEntryApp({ userEmail }) {
       const agg = {};
       sub.forEach((l) => { agg[CATS[l.cat].code] = r2((agg[CATS[l.cat].code] || 0) + A(l.amt)); });
       /* ค่าแรงรายวันจากการเช็คชื่อ — รวมเข้าใบจ่ายเงินสด */
-      if (k === "cash" && wageToday) agg["6010-LS"] = r2((agg["6010-LS"] || 0) + wageToday);
+      if (k === "cash" && wageToday) agg[`6010${SFX}`] = r2((agg[`6010${SFX}`] || 0) + wageToday);
       const drLines = Object.entries(agg).sort((a, b) => a[0].localeCompare(b[0]))
         .map(([code, dr]) => ({ code, dr, cr: 0 }));
       if (!drLines.length) return;
@@ -2892,13 +2910,18 @@ function LaabEntryApp({ userEmail }) {
 
     /* เงินเบิกล่วงหน้า — ลงเป็นลูกหนี้พนักงาน ไม่ใช่ค่าใช้จ่าย */
     if (advTotal) {
-      const lines = [{ code: "1032-LS", dr: advTotal, cr: 0 }];
-      if (advCash) lines.push({ code: "1010-LS", dr: 0, cr: advCash });
-      if (advBank) lines.push({ code: "1020-LS", dr: 0, cr: advBank });
+      const lines = [{ code: `1032${SFX}`, dr: advTotal, cr: 0 }];
+      if (advCash) lines.push({ code: `1010${SFX}`, dr: 0, cr: advCash });
+      if (advBank) lines.push({ code: `1020${SFX}`, dr: 0, cr: advBank });
       out.push({ no: no + "-F", title: "เงินเบิกล่วงหน้าพนักงาน (ยังไม่ใช่ค่าแรง)", lines });
     }
+    /* เอาเงินสดออกจากลิ้นชัก — ไม่ใช่รายจ่าย: เข้ากองกลาง = ถอน/ส่งกองกลาง (3020) · ฝากบัญชีร้าน = ย้ายเงินสดเข้าธนาคาร (1020) */
+    if (cashOut) {
+      out.push({ no: no + "-G", title: cashOutTo === "bank" ? "เอาเงินสดออก — ฝากบัญชีร้าน" : "เอาเงินสดออก — เข้ากองกลาง",
+        lines: [{ code: cashOutTo === "bank" ? `1020${SFX}` : `3020${SFX}`, dr: cashOut, cr: 0 }, { code: `1010${SFX}`, dr: 0, cr: cashOut }] });
+    }
     return out;
-  }, [active, day.rows, rev, grabPct, date, vendors, wageToday, advTotal, advCash, advBank]);
+  }, [active, day.rows, rev, grabPct, date, vendors, wageToday, advTotal, advCash, advBank, cashOut, cashOutTo]);
 
   const sumDr = r2(journals.reduce((s, j) => s + j.lines.reduce((a, l) => a + l.dr, 0), 0));
   const sumCr = r2(journals.reduce((s, j) => s + j.lines.reduce((a, l) => a + l.cr, 0), 0));
@@ -2907,17 +2930,17 @@ function LaabEntryApp({ userEmail }) {
   const summary = useMemo(() => {
     const T = (a) => a.join("\t");
     const L = [];
-    L.push(`ร้านอีสาน/ลาบ (LS) — ${thDate(date)}`);
+    L.push(`${SHOP} (${ENTITY}) — ${thDate(date)}`);
     L.push("");
     L.push(T(["วันที่", "ประเภท", "หมวด", "รายการ", "ร้าน", "วิธีจ่าย", "จำนวน", "หน่วย", "ราคา/หน่วย", "ยอดรวม", "รหัสบัญชี"]));
     const d = thDate(date);
-    const rv = [["cash", "เงินสด", "4010-LS"], ["transfer", "เงินโอน", "4020-LS"],
-                ["grab", "เงินแกร๊ป", "4030-LS"], ["thai", "ไทยช่วยไทย", "4040-LS"]];
+    const rv = [["cash", "เงินสด", `4010${SFX}`], ["transfer", "เงินโอน", `4020${SFX}`],
+                ["grab", "เงินแกร๊ป", `4030${SFX}`], ["thai", "ไทยช่วยไทย", `4040${SFX}`]];
     rv.forEach(([k, lab, code]) => {
       if (!A(rev[k])) return;
       L.push(T([d, "รับเงิน", lab, "", "", "", "", "", "", String(r2(A(rev[k]))), code]));
     });
-    if (grabComm) L.push(T([d, "รายจ่าย", "ค่าคอม Grab", `หัก ${grabPct}%`, "Grab", "หักจากยอด", "", "", "", String(grabComm), "6330-LS"]));
+    if (grabComm) L.push(T([d, "รายจ่าย", "ค่าคอม Grab", `หัก ${grabPct}%`, "Grab", "หักจากยอด", "", "", "", String(grabComm), `6330${SFX}`]));
     active.forEach((l) => {
       L.push(T([d, "ซื้อของ", CATS[l.cat].label, l.name, l.vendor, PAY[payOf(l)].label,
                 has(l.qty) ? String(r2(A(l.qty))) : "", l.unit,
@@ -2926,12 +2949,12 @@ function LaabEntryApp({ userEmail }) {
     employees.forEach((e) => {
       if (att[e.id] === undefined) return;
       L.push(T([d, "ค่าแรง", "ค่าแรงคนงาน", e.name, "", "จ่ายสด", "1", "วัน",
-                String(r2(A(att[e.id]))), String(r2(A(att[e.id]))), "6010-LS"]));
+                String(r2(A(att[e.id]))), String(r2(A(att[e.id]))), `6010${SFX}`]));
     });
     advToday.forEach((a) => {
       const e = empById[a.employee_id];
       L.push(T([d, "เบิกล่วงหน้า", "ลูกหนี้พนักงาน", (e && e.name) || "", "",
-                a.payment_method === "cash" ? "จ่ายสด" : "โอน", "", "", "", String(r2(A(a.amount))), "1032-LS"]));
+                a.payment_method === "cash" ? "จ่ายสด" : "โอน", "", "", "", String(r2(A(a.amount))), `1032${SFX}`]));
     });
     apToday.forEach((p) => {
       L.push(T([d, "จ่ายเจ้าหนี้", p.voucher_no || "", "", p.vendor_name, p.payment_method === "cash" ? "จ่ายสด" : "โอน",
@@ -2945,13 +2968,14 @@ function LaabEntryApp({ userEmail }) {
     L.push(`รวมรับ\t${r2(totalIn)}`);
     L.push(`รวมจ่าย\t${r2(totalOut)}`);
     L.push(`ค่าคอม Grab\t${grabComm}`);
-    L.push(`รับจากร้านก๋วยเตี๋ยว\t${nsTotal}`);
+    if (!IS_NS) L.push(`รับจากร้านก๋วยเตี๋ยว\t${nsTotal}`);
     L.push(`Prime Cost\t${prime}\t${pct(prime, totalIn)}`);
     L.push(`กำไรวันนี้ (ก่อนค่าคงที่)\t${profit}`);
     L.push("");
     L.push(`เงินสดยกมา\t${r2(A(cashOpen))}`);
     L.push(`ขายเงินสด\t${r2(A(rev.cash))}`);
     L.push(`จ่ายเงินสด\t${cashPaid}`);
+    if (cashOut) L.push(`เอาเงินสดออก (${cashOutTo === "bank" ? "ฝากบัญชีร้าน" : "เข้ากองกลาง"})\t${cashOut}`);
     L.push(`ควรมีในลิ้นชัก\t${cashShould}`);
     if (cashDiff !== null) {
       L.push(`นับได้จริง\t${r2(A(cashCount))}`);
@@ -2965,7 +2989,7 @@ function LaabEntryApp({ userEmail }) {
     });
     L.push(T(["", "", "รวมทั้งสิ้น", String(sumDr), String(sumCr)]));
     return L.join("\n");
-  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, vendors, att, employees, advToday, empById, apToday, whToday]);
+  }, [date, rev, grabPct, active, day.rows, journals, cashOpen, cashCount, cashOut, cashOutTo, vendors, att, employees, advToday, empById, apToday, whToday]);
 
   const doCopy = async () => {
     try {
@@ -3035,7 +3059,7 @@ function LaabEntryApp({ userEmail }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `laab-LS-สำรองข้อมูล-${date}.json`;
+    a.download = `laab-${ENTITY}-สำรองข้อมูล-${date}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -3220,7 +3244,7 @@ function LaabEntryApp({ userEmail }) {
   /* ═══════════ หน้าจอ ═══════════ */
   return (
     <>
-    <SiteNav current="ls" date={date} />
+    <SiteNav current={ENTITY.toLowerCase()} date={date} />
     <div className="wrap">
       <style>{`
 .wrap{--paper:var(--bg);--soft:var(--muted);--rule:var(--input-line);--margin:var(--red);--ok:var(--green);
@@ -3627,7 +3651,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       <datalist id="vlist">{Object.keys(vendors).map((v) => <option key={v} value={v} />)}</datalist>
 
       <div className="hdr">
-        <h1>ร้านอีสาน/ลาบ<span className="sub">บันทึกรายวัน · สาขา LS · v17</span></h1>
+        <h1>{SHOP}<span className="sub">บันทึกรายวัน · สาขา {ENTITY} · v17</span></h1>
         <div className="dright">
           <span className="userchip">{userEmail}</span>
           <button className="navb" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button>
@@ -4204,7 +4228,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               ))}
               {whCost !== 0 && <div className="cashsum"><span>รวมเป็นรายจ่ายวันนี้</span><span className="v">{money(whCost)}</span></div>}
               {whCash !== 0 && <div className="cashline" style={{ fontSize: 13.5, color: "var(--soft)" }}><span>เงินสดออกจากลิ้นชัก (รวมในยอดจ่ายเงินสดแล้ว)</span><span className="v">{money(whCash)}</span></div>}
-              <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href="./wh/">ไปหน้าคลังกลาง</a></p>
+              <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href={HOME + "wh/"}>ไปหน้าคลังกลาง</a></p>
             </div>
           )}
 
@@ -4227,6 +4251,22 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                   onBlur={() => setFocusKey((x) => (x === "c:count" ? null : x))}
                   onChange={(e) => { setCashCount(numStr(e.target.value)); dirty(); }} />
               </div>
+              <div className="revcell">
+                <label htmlFor="c-out">เอาเงินสดออก</label>
+                <input id="c-out" inputMode="decimal" placeholder="0"
+                  value={focusKey === "c:out" ? day.cashOut : (day.cashOut === "" ? "" : dec(A(day.cashOut)))}
+                  onFocus={() => setFocusKey("c:out")}
+                  onBlur={() => setFocusKey((x) => (x === "c:out" ? null : x))}
+                  onChange={(e) => { setCashOut(numStr(e.target.value)); dirty(); }} />
+              </div>
+              <div className="revcell">
+                <label htmlFor="c-outto">เอาไปไหน</label>
+                <select id="c-outto" value={cashOutTo} onChange={(e) => { setCashOutTo(e.target.value); dirty(); }}
+                  style={{ width: "100%", minHeight: 44, fontSize: 16, fontFamily: "inherit", borderRadius: 8, border: "1px solid var(--line, #D9D4C7)", background: "#fff", padding: "0 8px" }}>
+                  <option value="pool">เข้ากองกลาง</option>
+                  <option value="bank">ฝากบัญชีร้าน</option>
+                </select>
+              </div>
             </div>
             <div style={{ marginTop: 12 }}>
               <div className="cashline"><span>เงินสดยกมา</span><span className="v">{money(A(cashOpen))}</span></div>
@@ -4238,6 +4278,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                   <span className="v">{money(apCash)}</span>
                 </div>
               )}
+              {cashOut !== 0 && <div className="cashline"><span>− เอาเงินสดออก ({cashOutTo === "bank" ? "ฝากบัญชีร้าน" : "เข้ากองกลาง"})</span><span className="v">{money(cashOut)}</span></div>}
               <div className="cashsum"><span>ควรมีในลิ้นชัก</span><span className="v">{money(cashShould)}</span></div>
             </div>
             {cashDiff !== null && (
@@ -4268,8 +4309,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <span className="n">{money(ops)}<span>{pct(ops, totalIn)}</span></span></div>
             <div className="metric"><span className="k">ค่าคอม Grab<em>{grabPct}%</em></span>
               <span className="n">{money(grabComm)}<span>{pct(grabComm, totalIn)}</span></span></div>
-            <div className="metric sub"><span className="k">รับจากร้านก๋วยเตี๋ยววันนี้<em>ยังไม่จ่าย</em></span>
-              <span className="n">{money(nsTotal)}</span></div>
+            {!IS_NS && <div className="metric sub"><span className="k">รับจากร้านก๋วยเตี๋ยววันนี้<em>ยังไม่จ่าย</em></span>
+              <span className="n">{money(nsTotal)}</span></div>}
             <div className="metric big"><span className="k">กำไรวันนี้<em>ยังไม่หักค่าเช่า ไฟ น้ำ</em></span>
               <span className="n">{profit < 0 ? "−" : ""}{money(Math.abs(profit))}</span></div>
             <div className="metric big" style={{ borderTop: "1px solid #3C4A43" }}>
@@ -4327,7 +4368,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
             <p className="foot">
               <b>ช่องสีเข้ม</b> = ตัวเลขที่พิมพ์เอง ระบบไม่แตะ · <b>ช่องสีจาง</b> = ระบบคำนวณให้<br />
               ใส่ยอดรวมก่อนได้ พอใส่จำนวนทีหลัง ระบบจะหาราคาต่อหน่วยให้เอง ไม่ทับยอดที่พิมพ์<br />
-              ของจากร้านก๋วยเตี๋ยวลงตามหมวดจริง (เนื้อ→5010 ถุง→6210) เข้าเจ้าหนี้ 2100-LS เคลียร์สิ้นเดือน<br />
+              {!IS_NS && <>ของจากร้านก๋วยเตี๋ยวลงตามหมวดจริง (เนื้อ→5010 ถุง→6210) เข้าเจ้าหนี้ 2100{SFX} เคลียร์สิ้นเดือน<br /></>}
               ราคา "ครั้งก่อน" ดึงจากวันที่บันทึกไว้จริง ยิ่งใช้ยิ่งแม่น
             </p>
           </div>

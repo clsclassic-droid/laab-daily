@@ -10,4 +10,5 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
-export const ENTITY = "LS";
+/* กิจการของหน้าบันทึกรายวัน: หน้าแรก = ร้านลาบ (LS) · ns/index.html ตั้ง window.LAAB_ENTITY = "NS" ก่อนโหลดสคริปต์ */
+export const ENTITY = (typeof window !== "undefined" && window.LAAB_ENTITY === "NS") ? "NS" : "LS";
