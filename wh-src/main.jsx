@@ -181,7 +181,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
       const done = bill && r2(left - total) <= 0.004;
       setMsg(done ? "บิลครบยอดแล้ว" : f.id ? "แก้รายการแล้ว" : "บันทึกแล้ว");
       if (done) { setBillId(null); setF(EMPTY); }
-      else setF({ ...EMPTY, forLoc: f.forLoc, paidFrom: f.paidFrom, paidEnt: f.paidEnt, vendor: f.vendor, inv: bill ? f.inv : false,
+      else setF({ ...EMPTY, cat: f.cat, forLoc: f.forLoc, paidFrom: f.paidFrom, paidEnt: f.paidEnt, vendor: f.vendor, inv: bill ? f.inv : false,
         nowFrom: f.nowFrom, nowEnt: f.nowEnt, billId: f.billId });
       await reload();
     } catch (e) { setErr(errText(e)); }
@@ -213,17 +213,18 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
           · เหลือให้ใส่อีก <b>{fmt(left, 2)}</b> บาท{total ? <> → หลังบันทึกเหลือ <b>{fmt(r2(left - total), 2)}</b></> : null}
           <button className="link" onClick={endBill}>เลิกใส่บิลนี้</button></p>}
         <div className="row">
-          <label style={{ flex: "1 1 220px" }}>รายการ
-            <input list="items" value={f.name} onChange={(e) => onName(e.target.value)} placeholder="พิมพ์ชื่อ (ชื่อใหม่ = เพิ่มสินค้าใหม่)" style={{ width: "100%" }} />
-          </label>
-          <datalist id="items">{data.items.filter((i) => i.is_active).map((i) => <option key={i.id} value={i.name} />)}</datalist>
-          <label>หมวด
-            <select value={f.cat} disabled={!!known} onChange={(e) => set("cat", e.target.value)}>
-              <option value="">— เลือก —</option>
+          {/* บอสหนึ่ง 13 พ.ย.: หมวดมาก่อนรายการ · เลือกหมวดแล้ว รายชื่อสินค้าที่เด้งขึ้นจะเหลือเฉพาะหมวดนั้น */}
+          <label style={{ flex: "1 1 230px" }}>หมวด
+            <select value={f.cat} disabled={!!known} onChange={(e) => set("cat", e.target.value)} style={{ width: "100%" }}>
+              <option value="">— เลือกหมวด —</option>
               {data.cats.map((c) => <option key={c.name}>{c.name}</option>)}
               {f.cat && !data.cats.some((c) => c.name === f.cat) && <option>{f.cat}</option>}
             </select>
           </label>
+          <label style={{ flex: "1 1 220px" }}>รายการ
+            <input list="items" value={f.name} onChange={(e) => onName(e.target.value)} placeholder="พิมพ์ชื่อ (ชื่อใหม่ = เพิ่มสินค้าใหม่)" style={{ width: "100%" }} />
+          </label>
+          <datalist id="items">{data.items.filter((i) => i.is_active && (!f.cat || known || i.category === f.cat)).map((i) => <option key={i.id} value={i.name} />)}</datalist>
           <label>หน่วย<input value={f.unit} disabled={!!known} onChange={(e) => set("unit", e.target.value)} style={{ width: "6em" }} /></label>
         </div>
         {f.name.trim() && !known && <p className="warn small">สินค้าใหม่ — จะเพิ่มเข้ารายการสินค้าตอนบันทึก
