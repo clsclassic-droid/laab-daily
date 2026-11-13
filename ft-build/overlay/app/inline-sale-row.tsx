@@ -9,7 +9,7 @@ export default function InlineSaleRow({colSpan=5,products=Object.keys(basePrices
 const label=(p:string)=>productName(p,business),unit=(p:string)=>productUnit(p,business);
  const f=draft.fields;
  const change=(key:string,value:string)=>onChange(updateDraft(draft,key,value,business));
- const locked=disabled||saving;const rates=draft.record.unitPrices||customerPrices(f.date,f.priceGroup,business,f.customer);const free=freeCustomer(f.customer,business);
+ const locked=disabled||saving;const rates={...customerPrices(f.date,f.priceGroup,business,f.customer),...(draft.record.unitPrices||{})};const free=freeCustomer(f.customer,business);
  const rowProducts=Array.from(new Set([...visibleProducts,...products.filter(p=>Number(f['q:'+p]||0)!==0)]));
  function setRate(product:string,value:string){const nextRates={...rates};if(value==='')delete nextRates[product];else nextRates[product]=Number(value);const total=Math.round((Object.entries(nextRates).reduce((sum,[p,price])=>sum+Number(f['q:'+p]||0)*price,0)+Number(f.ship||0)+Number(draft.record.otherAmount||0))*100)/100;onChange({...draft,record:{...draft.record,unitPrices:nextRates},fields:{...f,total:String(total)}});}
  const amount=(value:string)=>Number(value||0).toLocaleString('th-TH',{maximumFractionDigits:2});
