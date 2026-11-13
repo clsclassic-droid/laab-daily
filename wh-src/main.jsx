@@ -259,8 +259,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
         </div>
         <p className="small muted">
           {total ? <>รวม <b>{fmt(total, 2)}</b> บาท{vat ? <> · VAT ซื้อ {fmt(vat, 2)}</> : null} · </> : null}
-          {f.forLoc === "main" ? "เข้าสต๊อกคลังกลาง แล้วร้านกดเบิก" : forEnt === "NS" ? "ร้านก๋วยเตี๋ยวยังไม่มีผังบัญชี — บันทึกได้ แต่ยังไม่ลงบัญชี"
-            : `เป็นต้นทุนของ${LOC_NAME[f.forLoc]}ทันที`}
+          {f.forLoc === "main" ? "เข้าสต๊อกคลังกลาง แล้วร้านกดเบิก" : `เป็นต้นทุนของ${LOC_NAME[f.forLoc]}ทันที`}
         </p>
         {err && <p className="red">{err}</p>}
         <div className="row">
@@ -478,8 +477,7 @@ function StockTab({ data, reload, setMsg }) {
           <label>จำนวน<Num value={qty} onChange={setQty} w="6em" /></label>
           <label style={{ flex: "1 1 140px" }}>หมายเหตุ<input value={note} onChange={(e) => setNote(e.target.value)} style={{ width: "100%" }} /></label>
         </div>
-        {cur && A(qty) > 0 && <p className="small muted">ต้นทุนประมาณ {fmt(r2(A(qty) * A(cur.avg_cost)), 2)} บาท (ราคาเฉลี่ย {fmt(cur.avg_cost, 2)}/{data.itemById[itemId]?.unit} ไม่รวม VAT) → ต้นทุนของ{LOC_NAME[to]}
-          {to === "ns" ? " · ร้านก๋วยเตี๋ยวยังไม่มีผังบัญชี ยังไม่ลงบัญชี" : ""}</p>}
+        {cur && A(qty) > 0 && <p className="small muted">ต้นทุนประมาณ {fmt(r2(A(qty) * A(cur.avg_cost)), 2)} บาท (ราคาเฉลี่ย {fmt(cur.avg_cost, 2)}/{data.itemById[itemId]?.unit} ไม่รวม VAT) → ต้นทุนของ{LOC_NAME[to]}</p>}
         {to === "waste" && <p className="small muted">ของเสีย: ตัดออกจากสต๊อกคลังกลาง ไม่เป็นต้นทุนของร้านไหน (เป็นเงินกองกลางที่เสียไป) · ถ้านับแล้วของขาด ใช้ช่องนี้ใส่หมายเหตุ "นับขาด" ได้</p>}
         {err && <p className="red">{err}</p>}
         <div className="row">
@@ -697,7 +695,7 @@ function OverviewTab({ data, setTab, setMsg }) {
           <div className="scroll"><table className="grid">
             <thead><tr><th>กิจการ</th><th>ยอดขาย (รวม VAT)</th><th>ต้นทุน</th><th>ค่าใช้จ่าย</th><th>กำไรเบื้องต้น</th></tr></thead>
             <tbody>{rows.map((r) => r.none ? (
-              <tr key={r.e} className="muted"><td>{r.n}</td><td colSpan={4}>{r.e === "NS" ? "ยังไม่มีผังบัญชี" : "ยังไม่มีรายการเดือนนี้"}</td></tr>
+              <tr key={r.e} className="muted"><td>{r.n}</td><td colSpan={4}>ยังไม่มีรายการเดือนนี้</td></tr>
             ) : (
               <tr key={r.e}><td>{r.n}</td><td className="r">{fmt(r.sales, 2)}</td><td className="r">{fmt(r.cost, 2)}</td><td className="r">{fmt(r.exp, 2)}</td>
                 <td className={"r b" + (r.profit < 0 ? " red" : "")}>{fmt(r.profit, 2)}</td></tr>))}</tbody>
