@@ -5,11 +5,11 @@
 import React, { useEffect } from "react";
 
 const TABS = [
-  ["wh", "คลังกลาง", "wh-test/"],
+  ["wh", "คลังกลาง", "wh/"],
   ["ls", "ร้านลาบ", ""],
   ["ft", "โรงลูกชิ้น", "ft/"],
-  ["gbs", "ซัน", "gb-test/?ent=GBS"],
-  ["gbk", "เกด", "gb-test/?ent=GBK"],
+  ["gbs", "ซัน", "gb/?ent=GBS"],
+  ["gbk", "เกด", "gb/?ent=GBK"],
 ];
 const BACKUP = "backup/";
 const LINE = "#B3AC9C", TAB_BG = "#E9E4D6", INK = "#1E2A24", SOFT = "#56665D", SLANT = 14;

@@ -1,5 +1,5 @@
 import "../shared/tokens.js";
-// หน้า "คลังกลาง + ซื้อของ" (หน้าทดสอบ) — 4 เมนู: ภาพรวม · ซื้อของ · คลัง/เบิก · สินค้า
+// หน้า "คลังกลาง + ซื้อของ" (หน้าจริง ตั้งแต่ 13 พ.ย. 2569) — 4 เมนู: ภาพรวม · ซื้อของ · คลัง/เบิก · สินค้า
 // ข้อมูล: inv_purchases (+ ซื้อเชื่อ inv_purchase_payments) · inv_moves (เบิก/คืน/ของเสีย from_loc/to_loc = 'main') · inv_items · inv_categories
 // ภาพรวมต่อกิจการ = ฟังก์ชัน wh_overview (รวมสมุดบัญชีที่ฐานข้อมูล)
 // ลงบัญชีอัตโนมัติที่ฐานข้อมูล (trigger wh_after_change → ใบบัญชี wh_purchase / wh_pay / wh_draw ผูก source_id)
@@ -805,7 +805,6 @@ function App() {
   const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
-      <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง (ลงบัญชีร้านด้วย) ลบทิ้งได้ก่อนเริ่มใช้จริง 1 ธ.ค.</div>
       <SiteNav current="wh" date={date} />
       
       <header>

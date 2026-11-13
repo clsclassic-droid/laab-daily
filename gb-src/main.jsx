@@ -9,7 +9,7 @@ import { supabase } from "../supabaseClient.js";
 
 const SHOPS = { GBS: { name: "ซัน", loc: "gbs", bank: false }, GBK: { name: "เกด", loc: "gbk", bank: true } };
 const WH_SOURCES = ["wh_purchase", "wh_draw", "wh_pay"];
-const WH_LINK = "../wh-test/"; // หน้าซื้อของ/คลังกลาง
+const WH_LINK = "../wh/"; // หน้าซื้อของ/คลังกลาง
 const LOC_NAME = { factory: "โรงงาน", gbs: "ซัน", gbk: "เกด", main: "คลังหลัก", ns: "ร้านก๋วยเตี๋ยว", ls: "ร้านลาบ" };
 const MOVE_LOCS = ["factory", "gbs", "gbk", "ns"]; // ร้านก๋วยเตี๋ยว = ย้ายไปเก็บไว้เฉยๆ ไม่มีเงิน
 // ชื่อลูกค้าที่หน้าโรงลูกชิ้น ↔ ที่ตั้ง (ร้านก๋วยเตี๋ยว = ลูกค้า "ร้านก๋วยเตี๋ยวดาวเทียม")
@@ -707,7 +707,6 @@ function App() {
   const p = { day, ent, reload, setMsg };
   return (
     <>
-      <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง ลบทิ้งได้ก่อนเริ่มใช้จริง</div>
       <SiteNav current={ent.toLowerCase()} date={date} />
       
       <header>

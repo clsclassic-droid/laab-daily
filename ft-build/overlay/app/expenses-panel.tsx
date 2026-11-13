@@ -14,7 +14,7 @@ const freshId=()=>crypto.randomUUID();
 type Submit=(action:string,values:Record<string,unknown>)=>Promise<boolean>;
 // รายการจากหน้าซื้อของ/คลังกลาง (ใบบัญชี wh_* ของ FT ที่ลงไว้แล้ว) — ดูอย่างเดียว แก้/ลบที่หน้าคลังกลาง
 // wh_purchase = ซื้อให้โรงลูกชิ้น · wh_draw = เบิก/คืนคลังกลาง · wh_pay = เงินสด FT จ่ายแทนของคลังกลาง/ร้านอื่น
-const WH_SOURCES=['wh_purchase','wh_draw','wh_pay'],WH_LINK='../wh-test/',whKind:Record<string,string>={wh_purchase:'ซื้อให้โรงลูกชิ้น',wh_draw:'เบิก/คืนคลัง',wh_pay:'จ่ายแทน'};
+const WH_SOURCES=['wh_purchase','wh_draw','wh_pay'],WH_LINK='../wh/',whKind:Record<string,string>={wh_purchase:'ซื้อให้โรงลูกชิ้น',wh_draw:'เบิก/คืนคลัง',wh_pay:'จ่ายแทน'};
 type WhRow={id:string;date:string;no:string;title:string;type:string;cost:number;vat:number;cash:number};
 const monthLast=(m:string)=>new Date(Date.UTC(Number(m.slice(0,4)),Number(m.slice(5,7)),0)).toISOString().slice(0,10);
 // ดึงทีละ 1,000 ใบ แล้วนับเทียบจำนวนจริง (Supabase ตัดเหลือ 1,000 แถวโดยไม่เตือน)

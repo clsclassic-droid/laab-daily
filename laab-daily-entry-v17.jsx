@@ -947,7 +947,7 @@ async function deleteVendorPaymentDB(p) {
 }
 
 /* จ่ายเจ้าหนี้ในวันที่เลือก — ใช้หักเงินสดในลิ้นชักหน้าบันทึกรายวัน */
-/* รายการจากหน้าซื้อของ/คลังกลาง (wh-test) ของวันที่เลือก — ดูอย่างเดียว แก้ที่หน้าคลังกลาง
+/* รายการจากหน้าซื้อของ/คลังกลาง (wh/) ของวันที่เลือก — ดูอย่างเดียว แก้ที่หน้าคลังกลาง
    wh_purchase = ซื้อให้ร้านลาบ · wh_draw = เบิก/คืนคลังกลาง · wh_pay = ลิ้นชัก/บัญชีร้านลาบจ่ายแทนของคลังกลาง/ร้านอื่น */
 const WH_SOURCES = ["wh_purchase", "wh_draw", "wh_pay"];
 async function fetchWhOnDate(date) {
@@ -4204,7 +4204,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               ))}
               {whCost !== 0 && <div className="cashsum"><span>รวมเป็นรายจ่ายวันนี้</span><span className="v">{money(whCost)}</span></div>}
               {whCash !== 0 && <div className="cashline" style={{ fontSize: 13.5, color: "var(--soft)" }}><span>เงินสดออกจากลิ้นชัก (รวมในยอดจ่ายเงินสดแล้ว)</span><span className="v">{money(whCash)}</span></div>}
-              <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href="./wh-test/">ไปหน้าคลังกลาง</a></p>
+              <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href="./wh/">ไปหน้าคลังกลาง</a></p>
             </div>
           )}
 
