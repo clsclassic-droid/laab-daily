@@ -40,6 +40,6 @@ export default function AuthGate({children}:{children:ReactNode}){
 // ปุ่มบนหัวเว็บ: ออกจากระบบ (ลิงก์ไปหน้าอื่นย้ายไปแถบเมนูกิจการ shared/site-nav.jsx) (ใส่ใน header ของ app/page.tsx)
 export function HeaderLinks(){
  return <div className="private" style={{display:'flex',gap:12}}>
-  <button type="button" onClick={()=>supabase.auth.signOut()} style={{background:'transparent',border:0,textDecoration:'underline',color:'inherit'}}>ออกจากระบบ</button>
+  <button type="button" onClick={()=>supabase.auth.signOut()} style={{background:'transparent',border:0,textDecoration:'underline',color:'inherit',minHeight:44,padding:'0 10px'}}>ออกจากระบบ</button>
  </div>;
 }

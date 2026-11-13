@@ -1027,21 +1027,21 @@ function LoginScreen() {
   return (
     <div style={{ maxWidth: 340, margin: "60px auto", fontFamily: "Sarabun,system-ui,sans-serif", color: "#1E2A24" }}>
       <h1 style={{ fontSize: 19, marginBottom: 4 }}>ร้านอีสาน/ลาบ</h1>
-      <p style={{ fontSize: 12.5, color: "#6B7C72", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
+      <p style={{ fontSize: 14, color: "#6B7C72", marginTop: 0, marginBottom: 20 }}>เข้าสู่ระบบเพื่อบันทึกรายวัน · สาขา LS</p>
       <form onSubmit={submit}>
-        <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>อีเมล</label>
+        <label style={{ display: "block", fontSize: 13.5, marginBottom: 4 }}>อีเมล</label>
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
           style={{ width: "100%", padding: 9, marginBottom: 12, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
-        <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>รหัสผ่าน</label>
+        <label style={{ display: "block", fontSize: 13.5, marginBottom: 4 }}>รหัสผ่าน</label>
         <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
           style={{ width: "100%", padding: 9, marginBottom: 14, border: "1px solid #C9DCC8", borderRadius: 4, fontSize: 14, boxSizing: "border-box" }} />
-        {err && <p style={{ color: "#A8443A", fontSize: 12.5, marginTop: -6, marginBottom: 12 }}>{err}</p>}
+        {err && <p style={{ color: "#A8443A", fontSize: 14, marginTop: -6, marginBottom: 12 }}>{err}</p>}
         <button type="submit" disabled={busy}
           style={{ width: "100%", padding: 11, border: "none", borderRadius: 4, background: "#1E2A24", color: "#FBFAF6", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>
           {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
         </button>
       </form>
-      <p style={{ fontSize: 11.5, color: "#6B7C72", marginTop: 18, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: "#6B7C72", marginTop: 18, lineHeight: 1.6 }}>
         ยังไม่มีบัญชี — ให้บอสหนึ่งสร้างให้ผ่าน Supabase Dashboard (Authentication → Users → Add user)
       </p>
     </div>
@@ -1090,7 +1090,7 @@ function ChartLegend({ series }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6 }}>
       {series.map((s) => (
-        <span key={s.key} style={{ fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <span key={s.key} style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color, display: "inline-block" }} />
           {s.label}
         </span>
@@ -1354,8 +1354,8 @@ function MonthSummary() {
   };
 
   let body;
-  if (err) body = <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {err}</p>;
-  else if (loading || !data) body = <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>;
+  if (err) body = <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {err}</p>;
+  else if (loading || !data) body = <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>;
   else if (Math.abs(data.cur.revenue) < 0.005 && Object.values(data.cur.groups).every((v) => Math.abs(v) < 0.005)) {
     body = (
       <p style={{ fontSize: 13, color: "var(--soft)", padding: "8px 0" }}>
@@ -1408,12 +1408,12 @@ function MonthSummary() {
         </div>
 
         <p className="eyebrow" style={{ marginTop: 16 }}><span>เทียบ {thMonth(period)} กับ {thMonth(prevPeriod)} — แยกตามกลุ่ม</span></p>
-        <div style={{ display: "flex", gap: 14, fontSize: 11.5, marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 14, fontSize: 13, marginBottom: 8 }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span className="mcsw" style={{ background: CMP_CUR }} />{thMonth(period)}</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span className="mcsw" style={{ background: CMP_PREV }} />{thMonth(prevPeriod)}</span>
         </div>
         {bars.length === 0 ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>ยังไม่มีข้อมูลในสองเดือนนี้</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>ยังไม่มีข้อมูลในสองเดือนนี้</p>
         ) : bars.map((b) => (
           <div className={`mcrow${b.key === "rev" ? " mcrev" : ""}`} key={b.key}>
             <span className="mclabel">{b.label}</span>
@@ -1450,7 +1450,7 @@ function MonthSummary() {
         </div>
       </div>
       {autoMoved && period === shiftMonth(monthOf(today), -1) && (
-        <p style={{ fontSize: 12, color: "var(--wait)", margin: "0 0 10px" }}>
+        <p style={{ fontSize: 13.5, color: "var(--wait)", margin: "0 0 10px" }}>
           {thMonth(monthOf(today))} ยังไม่มีข้อมูลที่ปิดยอดแล้ว — แสดง {thMonth(period)} ให้ก่อน (กด › เพื่อดูเดือนนี้)
         </p>
       )}
@@ -1843,7 +1843,7 @@ function Dashboard() {
       {rangeMode === "range" && (
         <>
           <input className="dateinput" type="date" value={rangeFrom || from30} onChange={(e) => setRangeFrom(e.target.value)} />
-          <span style={{ fontSize: 12, color: "var(--soft)" }}>ถึง</span>
+          <span style={{ fontSize: 13.5, color: "var(--soft)" }}>ถึง</span>
           <input className="dateinput" type="date" value={rangeTo || today} onChange={(e) => setRangeTo(e.target.value)} />
         </>
       )}
@@ -1867,9 +1867,9 @@ function Dashboard() {
       <div className="card">
         <p className="eyebrow"><span>แนวโน้มกำไรหลังหัก VAT — รายเดือน</span></p>
         {histErr ? (
-          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {histErr}</p>
+          <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {histErr}</p>
         ) : !hist ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : (
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
@@ -1878,15 +1878,15 @@ function Dashboard() {
               <button className={`navb${histRange === "all" ? " active" : ""}`} onClick={() => setHistRange("all")}>ทั้งหมดตั้งแต่เริ่ม</button>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 22, marginBottom: 10 }}>
-              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>กำไรสะสมตั้งแต่ {thMonth(hist[0].period)}</div>
+              <div><div style={{ fontSize: 13, color: "var(--soft)" }}>กำไรสะสมตั้งแต่ {thMonth(hist[0].period)}</div>
                 <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: histLast.cum >= 0 ? "var(--ok)" : "var(--margin)" }}>{histSignMoney(histLast.cum)}</div></div>
-              {histLastFull && <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>ค่าเฉลี่ยสะสม/เดือน (ถึง {thMonth(histLastFull.period)})</div>
+              {histLastFull && <div><div style={{ fontSize: 13, color: "var(--soft)" }}>ค่าเฉลี่ยสะสม/เดือน (ถึง {thMonth(histLastFull.period)})</div>
                 <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: "#C07A1A" }}>{histSignMoney(histLastFull.runAvg)}</div></div>}
-              {histBest && <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>เดือนที่ดีที่สุด</div>
+              {histBest && <div><div style={{ fontSize: 13, color: "var(--soft)" }}>เดือนที่ดีที่สุด</div>
                 <div style={{ fontSize: 22, fontWeight: 700 }}>{thMonth(histBest.period)} <span style={{ fontSize: 14, fontFamily: "'IBM Plex Mono',monospace", color: "var(--ok)" }}>{money(histBest.profitAfterVat)}</span></div></div>}
             </div>
             <ProfitTrendChart rows={histRows} formatValue={fmtK} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 11.5 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 13 }}>
               <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไรหลังหัก VAT</span>
               <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
               <span><span style={{ width: 16, height: 3, background: "#C07A1A", display: "inline-block", marginRight: 5, verticalAlign: "middle" }} />ค่าเฉลี่ยสะสมตั้งแต่เริ่มธุรกิจ</span>
@@ -1918,9 +1918,9 @@ function Dashboard() {
         <p className="eyebrow"><span>ยอดขาย — {rangeLabel}</span></p>
         {RangePicker}
         {rangeLoading ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : rangeErr ? (
-          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+          <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
         ) : (
           <>
             <StackedBarChart rows={salesRows} series={CHANNELS} formatValue={fmtK} />
@@ -1933,7 +1933,7 @@ function Dashboard() {
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10 }}>
               {CHANNELS.map((c) => (
-                <span key={c.key} style={{ fontSize: 12 }}>
+                <span key={c.key} style={{ fontSize: 13.5 }}>
                   <span style={{ color: c.color }}>●</span> {c.label} {money(channelTotals[c.key])} ({channelTotal > 0 ? pct(channelTotals[c.key], channelTotal) : "0.0%"})
                 </span>
               ))}
@@ -1964,23 +1964,23 @@ function Dashboard() {
 
       <div className="card">
         <p className="eyebrow"><span>กำไรรายวัน — {rangeLabel}</span></p>
-        <p style={{ fontSize: 12, color: "var(--soft)", margin: "0 0 10px" }}>เลือกช่วงวันที่ได้จากปุ่มในการ์ดยอดขายด้านบน · แตะแท่งเพื่อดูรายละเอียดของวันนั้น</p>
+        <p style={{ fontSize: 13.5, color: "var(--soft)", margin: "0 0 10px" }}>เลือกช่วงวันที่ได้จากปุ่มในการ์ดยอดขายด้านบน · แตะแท่งเพื่อดูรายละเอียดของวันนั้น</p>
         {rangeLoading ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : rangeErr ? (
-          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+          <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
         ) : (
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginBottom: 10 }}>
-              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>กำไรรวมช่วงนี้</div>
+              <div><div style={{ fontSize: 13, color: "var(--soft)" }}>กำไรรวมช่วงนี้</div>
                 <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'IBM Plex Mono',monospace", color: profitSum.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(r2(profitSum.profit))}</div></div>
-              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>วันที่กำไร</div>
+              <div><div style={{ fontSize: 13, color: "var(--soft)" }}>วันที่กำไร</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: "var(--ok)" }}>{profitSum.plus} วัน</div></div>
-              <div><div style={{ fontSize: 11.5, color: "var(--soft)" }}>วันที่ขาดทุน</div>
+              <div><div style={{ fontSize: 13, color: "var(--soft)" }}>วันที่ขาดทุน</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: profitSum.minus ? "var(--margin)" : "var(--soft)" }}>{profitSum.minus} วัน</div></div>
             </div>
             <ProfitBarChart rows={profitRows} formatValue={fmtK} selected={profitSel} onSelect={setProfitSel} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 11.5 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 6, fontSize: 13 }}>
               <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#1E6E4A", display: "inline-block", marginRight: 5 }} />กำไร</span>
               <span><span style={{ width: 10, height: 10, borderRadius: 2, background: "#A8443A", display: "inline-block", marginRight: 5 }} />ขาดทุน</span>
             </div>
@@ -1997,7 +1997,7 @@ function Dashboard() {
                   <span style={{ textAlign: "right", fontWeight: 700, borderTop: "1px solid #CBD5C6", color: profitPick.profit >= 0 ? "var(--ok)" : "var(--margin)" }}>{signMoney(profitPick.profit)}</span>
                 </div>
                 {profitPick.sales === 0 && profitPick.hasData && (
-                  <div style={{ fontSize: 12, color: "var(--margin)", marginTop: 4 }}>วันนี้ยังไม่มียอดขายในระบบ (ร้านปิด หรือยังไม่ได้กดปิดยอด)</div>
+                  <div style={{ fontSize: 13.5, color: "var(--margin)", marginTop: 4 }}>วันนี้ยังไม่มียอดขายในระบบ (ร้านปิด หรือยังไม่ได้กดปิดยอด)</div>
                 )}
               </div>
             )}
@@ -2071,9 +2071,9 @@ function Dashboard() {
       <div className="card">
         <p className="eyebrow"><span>รายจ่ายรายวัน — {rangeLabel} (แยกตามหมวด)</span></p>
         {rangeLoading ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : rangeErr ? (
-          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
+          <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {rangeErr}</p>
         ) : (
           <>
             <StackedBarChart rows={expRows} series={expSeries} formatValue={fmtK} />
@@ -2132,9 +2132,9 @@ function Dashboard() {
       <div className="card">
         <p className="eyebrow"><span>VAT ที่ต้องยื่น ภ.พ.30 รายเดือน (ประมาณการ)</span></p>
         {vatLoading ? (
-          <p style={{ fontSize: 12.5, color: "var(--soft)" }}>กำลังโหลด…</p>
+          <p style={{ fontSize: 14, color: "var(--soft)" }}>กำลังโหลด…</p>
         ) : vatErr ? (
-          <p style={{ fontSize: 12.5, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {vatErr}</p>
+          <p style={{ fontSize: 14, color: "var(--margin)" }}>โหลดข้อมูลไม่สำเร็จ: {vatErr}</p>
         ) : (
           <>
             <div className="prrow prhead"><span>เดือน</span><span>VAT ขาย</span><span>VAT ซื้อ</span><span>ต้องนำส่ง</span></div>
@@ -2162,7 +2162,7 @@ function Dashboard() {
               {!vendorVatList || vendorVatList.length === 0 ? (
                 <p className="foot" style={{ marginTop: 0 }}>ยังไม่มีร้านค้าในระบบ</p>
               ) : vendorVatList.map((v) => (
-                <label key={v.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12.5, borderBottom: "1px solid var(--rule)" }}>
+                <label key={v.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 14, borderBottom: "1px solid var(--rule)" }}>
                   <input type="checkbox" checked={v.vat} onChange={() => toggleVendorVat(v.name, v.vat)} />
                   {v.name}
                 </label>
@@ -3223,101 +3223,101 @@ function LaabEntryApp({ userEmail }) {
     <div className="wrap">
       <style>{`
 @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-.wrap{--paper:#FBFAF6;--ink:#1E2A24;--soft:#6B7C72;--rule:#C9DCC8;--margin:#A8443A;
+.wrap{--paper:#FBFAF6;--ink:#1E2A24;--soft:#56665D;--rule:#C9DCC8;--margin:#A8443A;
  --field:#F1F4EE;--dr:#2A5A78;--cr:#8A6A1F;--ns:#7A4E8C;--ok:#1E6E4A;--wait:#B4740E;
  font-family:'Sarabun',system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:18px}
 .wrap *{box-sizing:border-box}
 .hdr{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;
  border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:16px}
 .hdr h1{font-size:19px;font-weight:700;margin:0}
-.hdr .sub{font-size:12px;color:var(--soft);margin-left:10px;font-weight:400}
+.hdr .sub{font-size:13.5px;color:var(--soft);margin-left:10px;font-weight:400}
 .dright{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.dtext{font-size:12.5px;color:var(--soft);font-weight:600}
-.navb{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1;padding:6px 9px;border:1px solid var(--rule);
+.dtext{font-size:14px;color:var(--soft);font-weight:600}
+.navb{font-family:'Sarabun',sans-serif;font-size:14px;line-height:1;padding:6px 11px;min-height:40px;border:1px solid var(--rule);
  background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
 .navb:hover{background:var(--field)}
 .navb.active{background:var(--ink);color:#fff;border-color:var(--ink)}
-.navb.wide{font-size:11.5px;font-weight:600}
-.userchip{font-size:11px;color:var(--soft)}
-.dayrow{display:flex;align-items:center;gap:10px;padding:6px 2px;border-bottom:1px solid #EEF2EC;font-size:12.5px}
+.navb.wide{font-size:13px;font-weight:600}
+.userchip{font-size:13px;color:var(--soft)}
+.dayrow{display:flex;align-items:center;gap:10px;padding:6px 2px;border-bottom:1px solid #EEF2EC;font-size:14px}
 .dayrow.cur{background:var(--field);font-weight:600}
 .dayjump{flex:1;text-align:left;border:none;background:transparent;font-family:'Sarabun',sans-serif;
- font-size:12.5px;color:var(--dr);cursor:pointer;text-decoration:underline;padding:2px}
-.dayv{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--soft);white-space:nowrap}
-.daydel{border:none;background:transparent;color:var(--margin);font-size:11px;cursor:pointer;font-family:'Sarabun',sans-serif}
-.savebox .ok2{font-size:11.5px;color:var(--ok);margin:0 0 8px;font-weight:600}
-.dateinput{font-family:'IBM Plex Mono',monospace;font-size:13px;border:1px solid var(--rule);
- background:#fff;border-radius:3px;padding:6px 9px;color:var(--ink)}
+ font-size:14px;color:var(--dr);cursor:pointer;text-decoration:underline;padding:2px}
+.dayv{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft);white-space:nowrap}
+.daydel{border:none;background:transparent;color:var(--margin);font-size:13px;cursor:pointer;font-family:'Sarabun',sans-serif}
+.savebox .ok2{font-size:13px;color:var(--ok);margin:0 0 8px;font-weight:600}
+.dateinput{font-family:'IBM Plex Mono',monospace;font-size:14px;border:1px solid var(--rule);
+ background:#fff;border-radius:3px;padding:6px 9px;min-height:40px;color:var(--ink)}
 .cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:24px}
 @media(max-width:1000px){.cols{grid-template-columns:1fr;gap:18px}}
 .card{background:#fff;border:1px solid var(--rule);border-radius:4px;padding:14px 15px;margin-bottom:16px}
-.eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--soft);
+.eyebrow{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--soft);
  font-weight:600;margin:0 0 10px;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.eyebrow .plain{letter-spacing:0;text-transform:none;font-size:11.5px;font-weight:400}
+.eyebrow .plain{letter-spacing:0;text-transform:none;font-size:13px;font-weight:400}
 
 .askbar{border:1px solid var(--margin);background:#FBEEEC;border-radius:4px;padding:11px 13px;margin-bottom:14px}
-.askbar p{margin:0 0 8px;font-size:12.5px;color:var(--margin);font-weight:600}
+.askbar p{margin:0 0 8px;font-size:14px;color:var(--margin);font-weight:600}
 .askbar .btns{display:flex;gap:7px;flex-wrap:wrap}
-.askbar button{font-family:'Sarabun',sans-serif;font-size:12px;font-weight:600;padding:6px 11px;
+.askbar button{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:6px 11px;
  border-radius:3px;cursor:pointer;border:1px solid var(--margin);background:#fff;color:var(--margin)}
 .askbar button.go{background:var(--margin);color:#fff}
 
 .revgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:start}
 @media(max-width:560px){.revgrid{grid-template-columns:repeat(2,1fr)}}
-.revcell label{display:block;font-size:11.5px;color:var(--soft);margin-bottom:3px}
+.revcell label{display:block;font-size:13px;color:var(--soft);margin-bottom:3px}
 .revcell input{width:100%;text-align:right;font-family:'IBM Plex Mono',monospace;
  font-variant-numeric:tabular-nums;font-size:14px;border:1px solid transparent;
  background:var(--field);border-radius:3px;padding:8px;color:var(--ink)}
 .revcell input:focus{outline:none;border-color:var(--dr);background:#fff}
-.grabline{margin-top:5px;font-size:10.5px;color:var(--soft);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.grabline input{width:38px;padding:3px 4px;text-align:center;font-size:11px;background:#fff;border:1px solid var(--rule)}
+.grabline{margin-top:5px;font-size:13px;color:var(--soft);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.grabline input{width:38px;padding:3px 4px;text-align:center;font-size:13px;background:#fff;border:1px solid var(--rule)}
 .grabout{font-family:'IBM Plex Mono',monospace;color:var(--ns);font-weight:600}
 .grand{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:6px;
- border-top:2px solid var(--ink);font-size:13px;font-weight:700}
+ border-top:2px solid var(--ink);font-size:14px;font-weight:700}
 .grand .v{font-family:'IBM Plex Mono',monospace;font-size:17px}
 
 .cashgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 @media(max-width:480px){.cashgrid{grid-template-columns:1fr}}
-.cashline{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;
+.cashline{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;
  padding:5px 0;border-bottom:1px solid #EEF2EC}
 .cashline .v{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 .cashsum{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding-top:8px;
- border-top:2px solid var(--ink);font-size:13.5px;font-weight:700}
+ border-top:2px solid var(--ink);font-size:14.5px;font-weight:700}
 .cashsum .v{font-family:'IBM Plex Mono',monospace;font-size:16px}
-.cashres{margin-top:9px;padding:8px 11px;border-radius:3px;font-size:13px;font-weight:600;text-align:center}
+.cashres{margin-top:9px;padding:8px 11px;border-radius:3px;font-size:14px;font-weight:600;text-align:center}
 .cashres.ok{background:#EDF6F0;color:var(--ok);border:1px solid var(--ok)}
 .cashres.bad{background:#FBEEEC;color:var(--margin);border:1px solid var(--margin)}
 
 .toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.tbtn{font-family:'Sarabun',sans-serif;font-size:12.5px;font-weight:600;padding:7px 12px;
+.tbtn{font-family:'Sarabun',sans-serif;font-size:14px;font-weight:600;padding:7px 12px;min-height:40px;
  border:1px solid var(--ink);background:#fff;color:var(--ink);border-radius:3px;cursor:pointer}
 .tbtn:hover{background:var(--field)}
 .tbtn.ghost{border-color:var(--rule);color:var(--soft);font-weight:400}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--dr);outline-offset:1px}
-.search{flex:1 1 150px;min-width:0;font-family:'Sarabun',sans-serif;font-size:12.5px;
- border:1px solid var(--rule);background:#fff;border-radius:3px;padding:7px 10px;color:var(--ink)}
+.search{flex:1 1 150px;min-width:0;font-family:'Sarabun',sans-serif;font-size:14px;
+ border:1px solid var(--rule);background:#fff;border-radius:3px;padding:7px 10px;min-height:40px;color:var(--ink)}
 .search:focus{outline:none;border-color:var(--dr)}
 .qbox{border:1px solid var(--dr);border-radius:3px;background:#F4F9FC;padding:6px;margin-bottom:12px}
 .qres{display:flex;justify-content:space-between;gap:8px;width:100%;background:transparent;border:none;
- font-family:'Sarabun',sans-serif;font-size:12.5px;padding:5px 6px;cursor:pointer;color:var(--ink);
+ font-family:'Sarabun',sans-serif;font-size:14px;padding:5px 6px;cursor:pointer;color:var(--ink);
  text-align:left;border-radius:3px}
 .qres:hover{background:#fff}
-.qres em{font-style:normal;color:var(--soft);font-size:11.5px}
+.qres em{font-style:normal;color:var(--soft);font-size:13px}
 
 .boxhead{margin:16px 0 2px;padding-bottom:5px;border-bottom:2px solid var(--ink);
  display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .boxhead:first-of-type{margin-top:4px}
-.boxhead b{font-size:13px}
-.boxhead em{font-style:normal;font-size:11px;color:var(--soft)}
+.boxhead b{font-size:14px}
+.boxhead em{font-style:normal;font-size:13px;color:var(--soft)}
 .cgroup{border-bottom:1px solid var(--rule)}
 .chead{width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:10px;
  background:transparent;border:none;padding:10px 2px;cursor:pointer;text-align:left;font-family:'Sarabun',sans-serif}
 .chead:hover{background:var(--field)}
 .ch-l{display:flex;align-items:baseline;gap:7px;min-width:0;flex-wrap:wrap}
-.chev{font-size:9px;color:var(--soft);flex:0 0 auto}
+.chev{font-size:11px;color:var(--soft);flex:0 0 auto}
 .cname{font-size:14px;font-weight:700}
-.ccode{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--soft)}
-.cmeta{font-size:11.5px;color:var(--soft)}
+.ccode{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
+.cmeta{font-size:13px;color:var(--soft)}
 .ctot{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;flex:0 0 auto}
 .ctot.zero{color:var(--soft);font-weight:400}
 .cbody{padding:0 0 10px 12px}
@@ -3329,13 +3329,13 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .irow.on{background:#F7FAF6}
 .irow.wait{background:#FFF8EC}
 .irow.hi{box-shadow:0 0 0 2px var(--dr);background:#F4F9FC}
-.iname{font-size:13.5px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
+.iname{font-size:14.5px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
 .irow.on .iname{font-weight:600}
-.yhint{font-size:10.5px;color:var(--soft);font-family:'IBM Plex Mono',monospace}
-.cmpbtn{border:none;background:transparent;color:var(--dr);cursor:pointer;font-size:10.5px;
- padding:0;text-decoration:underline;font-family:'Sarabun',sans-serif}
-.f-vend,.f-pay{font-family:'Sarabun',sans-serif;font-size:11px;border:1px solid transparent;
- background:transparent;color:var(--soft);border-radius:3px;padding:4px 3px;width:100%;min-width:0}
+.yhint{font-size:13px;color:var(--soft);font-family:'IBM Plex Mono',monospace}
+.cmpbtn{border:none;background:transparent;color:var(--dr);cursor:pointer;font-size:13px;
+ padding:6px 4px;text-decoration:underline;font-family:'Sarabun',sans-serif}
+.f-vend,.f-pay{font-family:'Sarabun',sans-serif;font-size:13px;border:1px solid transparent;
+ background:transparent;color:var(--soft);border-radius:3px;padding:8px 3px;width:100%;min-width:0}
 .f-vend:hover,.f-pay:hover{border-color:var(--rule);background:#fff}
 .f-vend:focus,.f-pay:focus{outline:none;border-color:var(--dr);background:#fff}
 .f-vend.ns{color:var(--ns);font-weight:600}
@@ -3344,29 +3344,29 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .f-pay.p-transfer{color:var(--dr)}
 .f-pay.p-credit{color:var(--cr)}
 .irow input.f-qty,.irow input.f-rate,.irow input.f-amt{width:100%;text-align:right;
- font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:13px;
- border:1px solid transparent;background:transparent;border-radius:3px;padding:6px 5px;color:var(--soft)}
+ font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;
+ border:1px solid transparent;background:transparent;border-radius:3px;padding:9px 5px;color:var(--soft)}
 .irow input.typed{background:var(--field);color:var(--ink);font-weight:600}
 .irow.on input.f-amt{background:var(--field);color:var(--ink)}
 .irow input:focus{outline:none;border-color:var(--dr);background:#fff}
 .irow input::placeholder{color:#C3CCC5}
 .f-rate.flagup{background:#FBEEEC!important;border-color:var(--margin);color:var(--margin)!important}
 .f-rate.flagdown{background:#EDF6F0!important;border-color:var(--ok);color:var(--ok)!important}
-.iunit{font-size:10.5px;color:var(--soft)}
-.op{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#B9C4BB;text-align:center}
-.rowmsg{grid-column:1/-1;font-size:11px;padding:1px 0 3px 2px}
+.iunit{font-size:13px;color:var(--soft)}
+.op{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#8E9A92;text-align:center}
+.rowmsg{grid-column:1/-1;font-size:13px;padding:1px 0 3px 2px}
 .rowmsg.up{color:var(--margin)}.rowmsg.down{color:var(--ok)}.rowmsg.wait{color:var(--wait);font-weight:600}
 
 .conf{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--margin);border-radius:3px;background:#FBEEEC}
-.conf p{margin:0 0 8px;font-size:12.5px;color:var(--margin)}
+.conf p{margin:0 0 8px;font-size:14px;color:var(--margin)}
 .confbtns{display:flex;gap:7px;flex-wrap:wrap}
-.confbtns button{font-family:'Sarabun',sans-serif;font-size:12px;font-weight:600;padding:7px 11px;
+.confbtns button{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:7px 11px;
  border:1px solid var(--margin);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer;flex:1 1 200px}
 .confbtns button:hover{background:var(--margin);color:#fff}
 
 .linkrow{display:flex;gap:14px;flex-wrap:wrap}
 .ehead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
- padding:7px 0 9px;font-size:11.5px;color:var(--soft);border-bottom:1px solid var(--rule);margin-bottom:6px}
+ padding:7px 0 9px;font-size:13px;color:var(--soft);border-bottom:1px solid var(--rule);margin-bottom:6px}
 .erow{display:grid;grid-template-columns:26px minmax(0,1.5fr) 62px minmax(0,1fr) 74px;gap:6px;
  align-items:center;padding:4px 0;border-bottom:1px solid #F2F5F0}
 .erow.off{opacity:.45}
@@ -3377,75 +3377,75 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .e-grip:hover{background:#EEF1EC;color:var(--ink)}
 .e-grip:focus-visible{outline:2px solid var(--dr)}
 .erow.drag .e-grip{cursor:grabbing;color:var(--ink)}
-.erow input{font-family:'Sarabun',sans-serif;font-size:12.5px;border:1px solid var(--rule);
+.erow input{font-family:'Sarabun',sans-serif;font-size:14px;border:1px solid var(--rule);
  background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0;width:100%}
 .erow input:focus{outline:none;border-color:var(--dr)}
 .e-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
-.e-off{font-family:'Sarabun',sans-serif;font-size:11px;padding:6px 4px;border:1px solid var(--rule);
+.e-off{font-family:'Sarabun',sans-serif;font-size:13px;padding:6px 4px;border:1px solid var(--rule);
  background:#fff;color:var(--margin);border-radius:3px;cursor:pointer;white-space:nowrap}
 .e-off:hover{background:#FBEEEC}
-.e-del{font-family:'Sarabun',sans-serif;font-size:11px;padding:6px 4px;border:1px solid #D6453D;
+.e-del{font-family:'Sarabun',sans-serif;font-size:13px;padding:6px 4px;border:1px solid #D6453D;
  background:#fff;color:#D6453D;border-radius:3px;cursor:pointer;white-space:nowrap}
 .e-del:hover{background:#FBEEEC}
-.enote{font-size:11px;color:var(--soft);margin:8px 0 0;line-height:1.5}
+.enote{font-size:13px;color:var(--soft);margin:8px 0 0;line-height:1.5}
 @media(max-width:680px){.erow{grid-template-columns:26px minmax(0,1fr) 56px;grid-template-areas:"gr nm nm" "gr vd un" "gr of of";gap:4px}
  .e-grip{grid-area:gr;align-self:start;height:40px}
  .e-name{grid-area:nm}.e-unit{grid-area:un}.e-vend{grid-area:vd}.e-actions{grid-area:of;justify-content:flex-start}}
 .addrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule)}
-.addrow input{font-family:'Sarabun',sans-serif;font-size:12px;border:1px solid var(--rule);
+.addrow input{font-family:'Sarabun',sans-serif;font-size:13.5px;border:1px solid var(--rule);
  background:#fff;border-radius:3px;padding:6px 8px;color:var(--ink);min-width:0}
 .a-name{flex:1.4}.a-vend{flex:1}.a-unit{flex:0 0 58px}
-.addbtn{font-family:'Sarabun',sans-serif;font-size:12px;font-weight:600;padding:6px 11px;
+.addbtn{font-family:'Sarabun',sans-serif;font-size:13.5px;font-weight:600;padding:6px 11px;min-height:40px;
  border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:3px;cursor:pointer}
-.newlink{border:none;background:transparent;color:var(--dr);font-size:11.5px;cursor:pointer;
+.newlink{border:none;background:transparent;color:var(--dr);font-size:13px;cursor:pointer;
  font-family:'Sarabun',sans-serif;text-decoration:underline;padding:7px 2px}
 
-.alertbar{margin-bottom:11px;padding:8px 11px;border-radius:3px;font-size:12px;font-weight:600}
+.alertbar{margin-bottom:11px;padding:8px 11px;border-radius:3px;font-size:13.5px;font-weight:600}
 .alertbar.red{border:1px solid var(--margin);background:#FBEEEC;color:var(--margin)}
 .alertbar.amber{border:1px solid var(--wait);background:#FFF8EC;color:var(--wait)}
 .alertbar.info{border:1px solid var(--dr);background:#F4F9FC;color:var(--dr);font-weight:400}
 /* ── สรุปรายเดือน (แดชบอร์ด) ── */
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .kpi{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;background:var(--paper)}
-.kpi .kk{font-size:11.5px;color:var(--soft)}
+.kpi .kk{font-size:13px;color:var(--soft)}
 .kpi .kn{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:600;color:var(--ink)}
-.kdelta{font-size:11.5px;color:var(--soft)}
+.kdelta{font-size:13px;color:var(--soft)}
 .mcsw{width:10px;height:10px;border-radius:2px;display:inline-block}
 .mcrow{display:grid;grid-template-columns:minmax(0,190px) minmax(0,1fr);gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--field)}
 .mcrow.mcrev{border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:3px}
 .mcrow.mcrev .mclabel{font-weight:600}
-.mclabel{font-size:12px;line-height:1.35}
+.mclabel{font-size:13.5px;line-height:1.35}
 .mcbars{display:flex;flex-direction:column;gap:2px}
 .mcline{display:flex;align-items:center;gap:6px;min-height:12px}
 .mcbar{height:10px;border-radius:0 4px 4px 0;min-width:2px}
-.mcval{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink);white-space:nowrap}
+.mcval{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink);white-space:nowrap}
 .mcval.soft{color:var(--soft)}
 /* ── หน้าเจ้าหนี้ ── */
-.aptotal{display:flex;align-items:baseline;gap:12px;margin:12px 0 14px;padding:10px 12px;background:var(--field);border-radius:4px;font-size:13px}
+.aptotal{display:flex;align-items:baseline;gap:12px;margin:12px 0 14px;padding:10px 12px;background:var(--field);border-radius:4px;font-size:14px}
 .aptotal .n{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600}
 .soft{color:var(--soft)}
-.aprow{display:grid;grid-template-columns:minmax(0,1.4fr) 110px minmax(0,1.2fr) 96px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--field);font-size:13px}
-.aprow.aphead{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600;border-bottom:1px solid var(--rule)}
+.aprow{display:grid;grid-template-columns:minmax(0,1.4fr) 110px minmax(0,1.2fr) 96px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--field);font-size:14px}
+.aprow.aphead{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600;border-bottom:1px solid var(--rule)}
 .aprow .apamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600}
 .aprow.aphead .apamt{font-family:inherit}
-.apold{font-size:12px}
+.apold{font-size:13.5px}
 .apold em{font-style:normal;color:var(--soft)}
-.aplink{background:none;border:none;padding:0;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:left}
-.aplink.soft{color:var(--soft);font-size:12px}
-.aptag{margin-left:6px;font-size:10px;padding:1px 5px;border-radius:3px;background:#F2ECF5;color:var(--ns)}
+.aplink{background:none;border:none;padding:0;font:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-align:left}
+.aplink.soft{color:var(--soft);font-size:13.5px}
+.aptag{margin-left:6px;font-size:12px;padding:1px 5px;border-radius:3px;background:#F2ECF5;color:var(--ns)}
 .apform{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;padding:10px 12px;margin:4px 0 8px;background:#F4F9FC;border:1px solid var(--dr);border-radius:4px}
-.apform label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--soft)}
+.apform label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--soft)}
 .apform input,.apform select{font-family:inherit;font-size:14px;padding:6px 7px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
 .apform .apnote{grid-column:1/-1}
 .apbtns{grid-column:1/-1;display:flex;gap:8px}
-.aphint{grid-column:1/-1;margin:0;font-size:11.5px;color:var(--wait)}
+.aphint{grid-column:1/-1;margin:0;font-size:13px;color:var(--wait)}
 .apdetail{padding:6px 0 10px 18px;border-bottom:1px solid var(--field)}
 .apscroll{max-height:280px;overflow-y:auto}
-.apsub{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin-bottom:3px}
-.apline{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;font-size:12.5px;padding:3px 0}
+.apsub{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin-bottom:3px}
+.apline{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;font-size:14px;padding:3px 0}
 .apline>span:last-child{text-align:right}
-.apline em{font-style:normal;font-size:11px;margin-left:4px}
-.apdel{margin-left:8px;font-size:11px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer}
+.apline em{font-style:normal;font-size:13px;margin-left:4px}
+.apdel{margin-left:8px;font-size:13px;padding:1px 6px;border:1px solid var(--rule);background:#fff;color:var(--margin);border-radius:3px;cursor:pointer}
 @media (max-width:640px){
  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
  .mcrow{grid-template-columns:1fr}
@@ -3457,13 +3457,13 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
  .apline>span:nth-child(2){display:none}
 }
 .cmpbox{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dr);border-radius:3px;background:#F4F9FC}
-.cmpbox h4{margin:0 0 7px;font-size:12.5px;font-weight:700}
-.cmprow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0}
+.cmpbox h4{margin:0 0 7px;font-size:14px;font-weight:700}
+.cmprow{display:flex;justify-content:space-between;font-size:13.5px;padding:3px 0}
 .cmprow .p{font-family:'IBM Plex Mono',monospace}
-.cmpdate{font-family:'Sarabun',sans-serif;color:var(--soft);font-size:10.5px}
+.cmpdate{font-family:'Sarabun',sans-serif;color:var(--soft);font-size:13px}
 .vdrop{z-index:50;background:#fff;border:1px solid var(--rule);border-radius:3px;
   box-shadow:0 4px 14px rgba(0,0,0,.12);max-height:220px;overflow:auto}
-.vopt{padding:7px 9px;font-size:12.5px;font-family:'Sarabun',sans-serif;cursor:pointer;
+.vopt{padding:7px 9px;font-size:14px;font-family:'Sarabun',sans-serif;cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vopt:hover{background:#F4F9FC}
 .cmprow.best{color:var(--ok);font-weight:600}
@@ -3473,15 +3473,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .metric{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 13px;
  border-bottom:1px solid var(--rule)}
 .metric:last-child{border-bottom:none}
-.metric .k{font-size:12.5px}
-.metric .k em{font-style:normal;color:var(--soft);font-size:11px;margin-left:5px}
+.metric .k{font-size:14px}
+.metric .k em{font-style:normal;color:var(--soft);font-size:13px;margin-left:5px}
 .metric .n{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px;
  font-weight:500;white-space:nowrap}
-.metric .n span{color:var(--soft);font-size:11.5px;margin-left:6px}
+.metric .n span{color:var(--soft);font-size:13px;margin-left:6px}
 .metric.prime{background:var(--field)}
 .metric.prime .k,.metric.prime .n{font-weight:700}
 .metric.big{background:var(--ink);color:var(--paper);padding:11px 13px}
-.metric.big .k{font-weight:700;font-size:13px}
+.metric.big .k{font-weight:700;font-size:14px}
 .metric.big .n{font-size:21px;font-weight:600}
 .metric.big .k em{color:#9FB3A8}
 .metric.sub{background:#F7FAF6}
@@ -3492,12 +3492,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .btn:hover{opacity:.88}
 
 .savebox{margin-top:12px;border:2px solid var(--ok);border-radius:4px;padding:12px;background:#F4FAF6}
-.savebox h4{margin:0 0 4px;font-size:13px;font-weight:700;color:var(--ok)}
-.savebox .warn2{font-size:11.5px;color:var(--margin);margin:0 0 8px;font-weight:600}
-.savebox textarea{width:100%;height:120px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+.savebox h4{margin:0 0 4px;font-size:14px;font-weight:700;color:var(--ok)}
+.savebox .warn2{font-size:13px;color:var(--margin);margin:0 0 8px;font-weight:600}
+.savebox textarea{width:100%;height:120px;font-family:'IBM Plex Mono',monospace;font-size:13px;
  border:1px solid var(--rule);border-radius:3px;padding:7px;background:#fff;color:var(--ink);resize:vertical}
 .savebox .row2{display:flex;gap:7px;margin-top:8px}
-.savebox .row2 button{flex:1;font-family:'Sarabun',sans-serif;font-size:12.5px;font-weight:600;
+.savebox .row2 button{flex:1;font-family:'Sarabun',sans-serif;font-size:14px;font-weight:600;
  padding:8px;border-radius:3px;cursor:pointer;border:1px solid var(--ok);background:var(--ok);color:#fff}
 .savebox .row2 button.ghost{background:#fff;color:var(--soft);border-color:var(--rule)}
 
@@ -3506,38 +3506,38 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .ledger::before{content:"";position:absolute;left:12px;top:0;bottom:0;width:1.5px;background:var(--margin);opacity:.5}
 .lhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
 .lhead h2{font-size:14.5px;font-weight:700;margin:0}
-.lnote{font-size:11.5px;color:var(--soft)}
+.lnote{font-size:13px;color:var(--soft)}
 .je{margin-top:15px}
-.jetitle{font-size:12px;font-weight:600;padding-bottom:5px;border-bottom:1px solid var(--rule);
+.jetitle{font-size:13.5px;font-weight:600;padding-bottom:5px;border-bottom:1px solid var(--rule);
  display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.jeno{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--soft)}
+.jeno{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
 .jline,.colhead,.balbar{display:grid;grid-template-columns:66px minmax(0,1fr) 84px 84px;gap:7px}
 @media(max-width:520px){.jline,.colhead,.balbar{grid-template-columns:58px minmax(0,1fr) 66px 66px;gap:4px}}
-.jline{align-items:baseline;padding:4px 0;font-size:12.5px;border-bottom:1px solid #EEF2EC}
-.jcode{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--soft)}
+.jline{align-items:baseline;padding:4px 0;font-size:14px;border-bottom:1px solid #EEF2EC}
+.jcode{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft)}
 .jname{min-width:0;overflow-wrap:anywhere}
 .jname.indent{padding-left:14px;color:var(--soft)}
-.jamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:12.5px}
+.jamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:14px}
 .jamt.d{color:var(--dr)}.jamt.c{color:var(--cr)}
-.colhead{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:600;padding:8px 0 3px}
+.colhead{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:600;padding:8px 0 3px}
 .colhead .r{text-align:right}
 .balbar{margin-top:16px;padding-top:11px;border-top:2px solid var(--ink);align-items:baseline;
  grid-template-columns:minmax(0,1fr) 84px 84px}
 @media(max-width:520px){.balbar{grid-template-columns:minmax(0,1fr) 66px 66px}}
-.balbar .lab{font-size:13px;font-weight:700}
+.balbar .lab{font-size:14px;font-weight:700}
 .seal{margin-top:10px;display:inline-flex;gap:7px;border:1.5px solid var(--ok);color:var(--ok);
- border-radius:3px;padding:5px 11px;font-size:12.5px;font-weight:600}
+ border-radius:3px;padding:5px 11px;font-size:14px;font-weight:600}
 .seal.bad{border-color:var(--margin);color:var(--margin)}
-.foot{margin-top:14px;font-size:11.5px;color:var(--soft);line-height:1.65}
+.foot{margin-top:14px;font-size:13px;color:var(--soft);line-height:1.65}
 
 /* ── พนักงาน · ค่าแรง · เงินเบิกล่วงหน้า ── */
 .attrow{display:grid;grid-template-columns:minmax(0,1fr) 92px 96px;gap:8px;align-items:center;
  padding:7px 0;border-bottom:1px solid #EEF2EC}
-.attname{display:flex;align-items:center;gap:9px;font-size:13.5px;min-width:0;cursor:pointer}
+.attname{display:flex;align-items:center;gap:9px;font-size:14.5px;min-width:0;cursor:pointer}
 .attname input{width:17px;height:17px;accent-color:var(--ink);flex:none;pointer-events:none}
 .attname span{overflow-wrap:anywhere}
-.attrate{font-size:11.5px;color:var(--soft);text-align:right;font-variant-numeric:tabular-nums}
-.attamt{font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;padding:6px 8px;
+.attrate{font-size:13px;color:var(--soft);text-align:right;font-variant-numeric:tabular-nums}
+.attamt{font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:right;padding:6px 8px;
  border:1px solid var(--rule);border-radius:3px;background:var(--field);width:100%;box-sizing:border-box}
 .attamt:disabled{background:transparent;border-color:transparent;color:var(--soft)}
 .attrow.on .attamt{background:#fff;color:var(--ink)}
@@ -3546,51 +3546,51 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .emprow{display:grid;grid-template-columns:minmax(0,1fr) 92px 78px 46px auto;gap:7px;align-items:center;
  padding:5px 0;border-bottom:1px solid #EEF2EC}
 .emprow.off{opacity:.5}
-.e-name,.e-rate{font-family:'Sarabun',sans-serif;font-size:13px;padding:6px 8px;border:1px solid var(--rule);
+.e-name,.e-rate{font-family:'Sarabun',sans-serif;font-size:14px;padding:6px 8px;border:1px solid var(--rule);
  border-radius:3px;background:#fff;min-width:0;box-sizing:border-box}
 .e-rate{font-family:'IBM Plex Mono',monospace;text-align:right}
-.e-type,.prsel{font-family:'Sarabun',sans-serif;font-size:12.5px;padding:6px 5px;border:1px solid var(--rule);
+.e-type,.prsel{font-family:'Sarabun',sans-serif;font-size:14px;padding:6px 5px;border:1px solid var(--rule);
  border-radius:3px;background:#fff;min-width:0;box-sizing:border-box}
-.e-unit{font-size:11px;color:var(--soft)}
+.e-unit{font-size:13px;color:var(--soft)}
 
-.advhead{font-size:12.5px;font-weight:600;margin:4px 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.advhead em{font-style:normal;font-weight:400;font-size:11.5px;color:var(--soft)}
+.advhead{font-size:14px;font-weight:600;margin:4px 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.advhead em{font-style:normal;font-weight:400;font-size:13px;color:var(--soft)}
 .advrow{display:grid;grid-template-columns:minmax(0,1fr) 64px 88px 42px;gap:8px;align-items:center;
- padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:13px}
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px}
 .advname{overflow-wrap:anywhere}
-.advpay{font-size:11.5px;color:var(--soft)}
+.advpay{font-size:13px;color:var(--soft)}
 .advamt{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 
 .owedbox{margin-top:12px;border:1px solid var(--rule);border-radius:4px;padding:10px 11px;background:var(--field)}
-.owedbox b{font-size:12px;display:block;margin-bottom:6px}
-.owedrow{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0}
+.owedbox b{font-size:13.5px;display:block;margin-bottom:6px}
+.owedrow{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:3px 0}
 .owedrow span:last-child{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 .owedrow .warn{color:var(--margin);font-weight:600}
 
 .prrow{display:grid;grid-template-columns:minmax(0,1.3fr) 108px 92px 92px 92px 72px;gap:8px;align-items:center;
- padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:13px}
-.prrow.prhead{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600}
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px}
+.prrow.prhead{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-weight:600}
 .prrow.dim{opacity:.62}
 .prrow.prtot{border-bottom:none;border-top:2px solid var(--ink);font-weight:700;padding-top:9px;
  font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 .prname{overflow-wrap:anywhere}
-.prtype{font-size:11px;color:var(--soft)}
+.prtype{font-size:13px;color:var(--soft)}
 .prnet{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
-.prin{font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:right;padding:5px 7px;width:100%;
+.prin{font-family:'IBM Plex Mono',monospace;font-size:14px;text-align:right;padding:5px 7px;width:100%;
  border:1px solid var(--rule);border-radius:3px;background:#fff;box-sizing:border-box}
 .prin:disabled{background:transparent;border-color:transparent;color:var(--soft)}
 .trendrow{display:grid;grid-template-columns:110px 92px 92px 84px 92px 84px 76px 100px 96px 100px 108px;gap:8px;align-items:center;
- padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
-.trendrow.prhead{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
+.trendrow.prhead{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);font-weight:600;white-space:normal}
 .histrow{display:grid;grid-template-columns:minmax(96px,1.1fr) repeat(6,minmax(84px,1fr));gap:8px;align-items:center;
- padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
 .histrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
-.histrow.prhead{font-size:10px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
+.histrow.prhead{font-size:12px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
 .histrow.prhead>span{font-family:inherit}
 .profitrow{display:grid;grid-template-columns:minmax(96px,1.2fr) repeat(6,minmax(70px,1fr));gap:8px;align-items:center;
- padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:12.5px;white-space:nowrap}
+ padding:6px 0;border-bottom:1px solid #EEF2EC;font-size:14px;white-space:nowrap}
 .profitrow>span:not(:first-child){text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
-.profitrow.prhead{font-size:10px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
+.profitrow.prhead{font-size:12px;letter-spacing:.06em;color:var(--soft);font-weight:600;white-space:normal}
 .profitrow.prhead>span{font-family:inherit}
 @media(max-width:640px){
   .prrow{grid-template-columns:minmax(0,1fr) 76px 76px 76px;row-gap:3px}
@@ -3607,8 +3607,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   grid-template-areas:"nm nm nm nm nm nm" "vd vd vd pv pv pv" "qt un ox rt eq am";
   gap:3px 5px;padding:9px 0 8px}
  .iname{grid-area:nm;font-size:14px}
- .f-vend{grid-area:vd;font-size:11.5px}
- .f-pay{grid-area:pv;text-align:right;text-align-last:right;font-size:11.5px}
+ .f-vend{grid-area:vd;font-size:13px}
+ .f-pay{grid-area:pv;text-align:right;text-align-last:right;font-size:13px}
  .f-qty{grid-area:qt}
  .iunit{grid-area:un;text-align:left}
  .op.ox{grid-area:ox}
@@ -3681,9 +3681,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
             </span>
           </p>
           {!daysSummary ? (
-            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+            <p style={{ fontSize: 14, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
           ) : daysSummary.length === 0 ? (
-            <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>ยังไม่มีวันไหนบันทึกไว้</p>
+            <p style={{ fontSize: 14, color: "var(--soft)", margin: 0 }}>ยังไม่มีวันไหนบันทึกไว้</p>
           ) : daysSummary.map((x) => (
             <div className={`dayrow${x.d === date ? " cur" : ""}`} key={x.d}>
               <button className="dayjump" onClick={() => { setDate(x.d); setShowDays(false); }}>
@@ -3890,7 +3890,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowPayroll(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!payData ? (
-                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                  <p style={{ fontSize: 14, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
                 ) : (
                   <>
                     <div className="prrow prhead">
@@ -4059,7 +4059,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowMonthly(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!monthlyData ? (
-                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                  <p style={{ fontSize: 14, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
                 ) : (
                   <>
                     <div className="prrow prhead">
@@ -4137,7 +4137,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                   <span className="plain"><button className="tbtn ghost" onClick={() => setShowSummary(false)}>ปิดหน้านี้</button></span>
                 </p>
                 {!summaryData ? (
-                  <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
+                  <p style={{ fontSize: 14, color: "var(--soft)", margin: 0 }}>กำลังโหลด…</p>
                 ) : (
                   <>
                     <div className="prrow prhead">
@@ -4202,7 +4202,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 </div>
               ))}
               {whCost !== 0 && <div className="cashsum"><span>รวมเป็นรายจ่ายวันนี้</span><span className="v">{money(whCost)}</span></div>}
-              {whCash !== 0 && <div className="cashline" style={{ fontSize: 12, color: "var(--soft)" }}><span>เงินสดออกจากลิ้นชัก (รวมในยอดจ่ายเงินสดแล้ว)</span><span className="v">{money(whCash)}</span></div>}
+              {whCash !== 0 && <div className="cashline" style={{ fontSize: 13.5, color: "var(--soft)" }}><span>เงินสดออกจากลิ้นชัก (รวมในยอดจ่ายเงินสดแล้ว)</span><span className="v">{money(whCash)}</span></div>}
               <p className="foot" style={{ marginTop: 8 }}>ดูอย่างเดียว — แก้/ลบที่หน้าคลังกลาง · <a href="./wh-test/">ไปหน้าคลังกลาง</a></p>
             </div>
           )}
@@ -4232,7 +4232,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <div className="cashline"><span>+ ขายเงินสดวันนี้</span><span className="v">{money(A(rev.cash))}</span></div>
               <div className="cashline"><span>− จ่ายเงินสดวันนี้</span><span className="v">{money(cashPaid)}</span></div>
               {apCash > 0 && (
-                <div className="cashline" style={{ fontSize: 12, color: "var(--soft)" }}>
+                <div className="cashline" style={{ fontSize: 13.5, color: "var(--soft)" }}>
                   <span>&nbsp;&nbsp;(รวมจ่ายเจ้าหนี้เงินสด {apToday.filter((p) => p.payment_method === "cash").map((p) => p.vendor_name).join(", ")})</span>
                   <span className="v">{money(apCash)}</span>
                 </div>

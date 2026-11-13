@@ -42,13 +42,13 @@ export default function SiteNav({ current, date, extra }) {
     } catch { /* ไม่เป็นไร */ }
   }, [date, current]);
   return (
-    <nav aria-label="กิจการ" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 12px", margin: 0, background: "#f3efe6",
+    <nav aria-label="กิจการ" style={{ display: "flex", gap: 8, overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", padding: "8px 12px", margin: 0, background: "#f3efe6",
       borderBottom: "1px solid #e2dccd", WebkitOverflowScrolling: "touch", fontFamily: "inherit", position: "relative", zIndex: 5 }}>
       {PAGES.map(([k, name, path]) => {
         const on = k === current;
         return (
           <a key={k} href={siteLink(path, date)} aria-current={on ? "page" : undefined}
-            style={{ flex: "0 0 auto", padding: "8px 14px", borderRadius: 999, fontSize: 15, lineHeight: 1.2, textDecoration: "none", whiteSpace: "nowrap",
+            style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", minHeight: 44, boxSizing: "border-box", padding: "0 16px", borderRadius: 999, fontSize: 16, lineHeight: 1.2, textDecoration: "none", whiteSpace: "nowrap",
               border: "1px solid " + (on ? "#1f2a22" : "#cfc8b8"), background: on ? "#1f2a22" : "#fff", color: on ? "#fff" : "#1f2a22",
               fontWeight: on ? 700 : 500, marginLeft: k === "backup" ? "auto" : 0 }}>
             {name}

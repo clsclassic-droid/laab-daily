@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <title>คลังกลาง — ระบบบัญชี</title>
 <style>
-  :root{--bg:#FBFAF6;--ink:#1E2A24;--muted:#6B7C72;--line:#E4E1D8;--green:#1F7A4D;--red:#B3261E;--card:#fff;--warn:#FFF4D6}
+  :root{--bg:#FBFAF6;--ink:#1E2A24;--muted:#56665D;--line:#E4E1D8;--green:#1F7A4D;--red:#B3261E;--card:#fff;--warn:#FFF4D6}
   html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Noto Sans Thai",sans-serif;-webkit-text-size-adjust:100%}
   #app{max-width:860px;margin:0 auto;padding:0 12px 40px}
   header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0}
@@ -17,7 +17,7 @@
   .seg{display:inline-flex;border:1px solid var(--ink);border-radius:10px;overflow:hidden;margin-left:auto}
   .seg button{background:#fff;color:var(--ink);border-radius:0;padding:10px 22px}
   .seg button.on{background:var(--ink);color:#fff}
-  .tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:2px solid var(--line);margin-bottom:12px}
+  .tabs{display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;border-bottom:2px solid var(--line);margin-bottom:12px}
   .tabs button{background:none;color:var(--muted);border-radius:0;padding:12px 14px;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap}
   .tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
@@ -30,7 +30,8 @@
   select.dest{min-width:8.5em;padding:6px 8px}
   button{font:inherit;font-weight:600;padding:11px 18px;border-radius:10px;border:0;background:var(--ink);color:#fff;cursor:pointer;min-height:44px}
   button:disabled{opacity:.5} button.ghost{background:#fff;color:var(--ink);border:1px solid var(--ink)} button.sm{padding:8px 14px}
-  button.link{background:none;color:var(--ink);text-decoration:underline;padding:6px 8px;font-weight:500;min-height:0}
+  button.link{background:none;color:var(--ink);text-decoration:underline;padding:9px 10px;font-weight:500;min-height:40px}
+.tabs::-webkit-scrollbar{display:none}
   .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}.arrow{font-size:22px;padding-bottom:16px}
   .scroll{overflow-x:auto}
   table.grid{border-collapse:collapse;font-size:15px;margin:6px 0;width:100%}
