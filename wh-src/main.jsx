@@ -803,8 +803,9 @@ function App() {
   const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
-      <SiteNav current="wh" date={date} />
       <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง (ลงบัญชีร้านด้วย) ลบทิ้งได้ก่อนเริ่มใช้จริง 1 ธ.ค.</div>
+      <SiteNav current="wh" date={date} />
+      
       <header>
         <h1>คลังกลาง</h1>
       </header>

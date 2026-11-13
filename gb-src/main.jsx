@@ -706,8 +706,9 @@ function App() {
   const p = { day, ent, reload, setMsg };
   return (
     <>
-      <SiteNav current={ent.toLowerCase()} date={date} />
       <div className="testbar">หน้าทดสอบ — ข้อมูลที่ลงจะเข้าฐานข้อมูลจริง ลบทิ้งได้ก่อนเริ่มใช้จริง</div>
+      <SiteNav current={ent.toLowerCase()} date={date} />
+      
       <header>
         <h1>ลูกชิ้นปิ้ง</h1>
       </header>
