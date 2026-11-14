@@ -150,7 +150,7 @@ const QPAY = [["pool", "กองกลาง"], ["drawer", "ลิ้นชั�
 const dTH = (d) => { const m = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]; return `${+d.slice(8)} ${m[+d.slice(5, 7) - 1]}`; };
 const entFor = (loc, paid, ent) => (noEnt(paid) ? null : LOC_ENT[loc] || ent || "LS");
 
-function QuickBuy({ data, reload, setMsg, openForm }) {
+function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   const [draft, setDraft] = useState({}), [open, setOpen] = useState({}), [editCat, setEditCat] = useState(""), [q, setQ] = useState("");
   const [busy, setBusy] = useState({}), [err, setErr] = useState("");
   const items = data.items.filter((i) => i.is_active && !i.is_produced);
@@ -268,6 +268,7 @@ function QuickBuy({ data, reload, setMsg, openForm }) {
         <button className="ghost sm" onClick={restore}>คืนราคาครั้งก่อน</button>
         <button className="ghost sm lt" onClick={clearAll}>ล้างจำนวน</button>
         <input placeholder="หาของ... พิมพ์ 2-3 ตัวอักษร" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="sm" onClick={newBill} style={{ whiteSpace: "nowrap" }}>+ ลงบิล</button>
       </div>
       {err && <p className="red small">{err}</p>}
       {!items.length && <p className="muted">ยังไม่มีรายการของ — กด "+ เพิ่มของใหม่" ในหมวด หรือใช้ช่อง "ซื้อของใหม่ / ซื้อครั้งเดียว" ด้านล่าง</p>}
@@ -323,7 +324,7 @@ const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 
 function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   const [f, setF] = useState(EMPTY), [busy, setBusy] = useState(false), [err, setErr] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false), [billReq, setBillReq] = useState(0);
   const formRef = React.useRef(null);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const showForm = () => { setFormOpen(true); setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
@@ -406,8 +407,8 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   const sum = rows.reduce((t, p) => t + A(p.amount), 0), sumVat = rows.reduce((t, p) => t + A(p.vat_amount), 0);
   return (
     <>
-      <BillCard data={data} reload={reload} setMsg={setMsg} startBill={startBill} activeId={f.billId} />
-      <QuickBuy data={data} reload={reload} setMsg={setMsg} openForm={openForm} />
+      <BillCard data={data} reload={reload} setMsg={setMsg} startBill={startBill} activeId={f.billId} newReq={billReq} />
+      <QuickBuy data={data} reload={reload} setMsg={setMsg} openForm={openForm} newBill={() => setBillReq((n) => n + 1)} />
       <div ref={formRef} className="card" style={bill ? { outline: "2px solid var(--accent, #2563eb)" } : null}>
         {!(formOpen || f.id || bill) ? (
           <button className="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => openForm("")}>▸ ซื้อของใหม่ / ซื้อครั้งเดียว <span className="muted small">(กรอกทีละรายการ)</span></button>
@@ -502,8 +503,11 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
 
 /* ── บิลยอดเงินก่อน รายละเอียดสินค้าทีหลัง (แบบ ก: บิลไม่ลงบัญชีเอง ลงตามรายการที่ใส่) ── */
 const BILL0 = { id: null, amt: "", vendor: "", from: "pool", ent: "LS", inv: false, note: "" };
-function BillCard({ data, reload, setMsg, startBill, activeId }) {
+function BillCard({ data, reload, setMsg, startBill, activeId, newReq }) {
   const [b, setB] = useState(null), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const boxRef = React.useRef(null);
+  // ปุ่ม "+ ลงบิล" อยู่ในการ์ดซื้อของวันนี้ → เปิดฟอร์มบิลที่นี่
+  useEffect(() => { if (newReq) { setErr(""); setB({ ...BILL0 }); setTimeout(() => boxRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); } }, [newReq]);
   const rows = data.bills.map((x) => ({ x, left: billLeft(data, x) }));
   const open = rows.filter((r) => r.left > 0.004 || r.left < -0.004).sort((a, c) => a.x.bill_date.localeCompare(c.x.bill_date));
   const doneToday = rows.filter((r) => Math.abs(r.left) <= 0.004 && r.x.bill_date === data.date);
@@ -542,10 +546,10 @@ function BillCard({ data, reload, setMsg, startBill, activeId }) {
       <td className="nw">{left > 0.004 && <button className="link" onClick={() => startBill(x)}>ใส่สินค้า</button>}
         <button className="link" onClick={() => edit(x)}>แก้</button><button className="link red" onClick={() => del(x)}>ลบ</button></td>
     </tr>);
+  if (!b && !open.length && !doneToday.length) return null;   // ไม่มีบิล = ไม่ต้องมีกล่อง
   return (
-    <div className="card">
-      <div className="bar" style={{ margin: 0, flexWrap: "nowrap" }}><span>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : <span className="muted small">· ไม่มี</span>}</span>
-        {!b && <button className="sm" style={{ marginLeft: "auto", whiteSpace: "nowrap" }} onClick={() => { setErr(""); setB({ ...BILL0 }); }}>+ ลงบิล</button>}</div>
+    <div className="card" ref={boxRef}>
+      <div className="bar" style={{ margin: 0, flexWrap: "nowrap" }}><span>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : null}</span></div>
       {b && <div style={{ background: "var(--warn)", padding: 8, borderRadius: "var(--r-input)", margin: "8px 0" }}>
         <div className="row">
           <label>ยอดเงินในบิล (บาท)<Num value={b.amt} onChange={(v) => setB({ ...b, amt: v })} w="8em" /></label>
@@ -1011,15 +1015,15 @@ function App() {
     <>
       <SiteNav current="wh" date={date} />
       
-      <header>
-        <h1>คลังกลาง</h1>
+      {/* 14 พ.ย. บอสหนึ่ง: ช่องว่างเยอะเกินไป → ไม่มีชื่อหน้าตัวใหญ่ (แท็บบนสุดบอกแล้ว) · เมนูกับวันที่แถวเดียวกัน */}
+      <div className="tabrow">
+        <nav className="tabs">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}</nav>
         <div className="datepill">
           <button onClick={() => setDate(addDays(date, -1))} aria-label="วันก่อน">‹</button>
           <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
           <button onClick={() => setDate(addDays(date, 1))} aria-label="วันถัดไป">›</button>
         </div>
-      </header>
-      <nav className="tabs">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}</nav>
+      </div>
       {msg && <div className="toast">{msg}</div>}
       {err && <p className="red pad">โหลดข้อมูลไม่ได้: {err} <button className="link" onClick={() => location.reload()}>รีเฟรช</button></p>}
       {!data ? (!err && <p className="muted pad">กำลังโหลด…</p>) : (
