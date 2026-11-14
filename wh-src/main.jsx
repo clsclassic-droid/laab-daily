@@ -59,6 +59,17 @@ async function fetchStock() {
   return out;
 }
 
+/* ราคาครั้งก่อนของทุกสินค้า (ก่อนวันที่เลือก) — ฟังก์ชัน inv_last_prices ดึงทีละ 1,000 จนหมด */
+async function fetchLastPrices(date) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = chk(await supabase.rpc("inv_last_prices", { p_date: date }).order("item_id").range(from, from + 999));
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
 /* สต๊อกทุกที่ ณ วันที่ (ฟังก์ชัน inv_loc_stock) ดึงทีละ 1,000 จนหมด */
 async function fetchLocStock(date) {
   const out = [];
@@ -71,7 +82,7 @@ async function fetchLocStock(date) {
 }
 
 async function loadAll(date) {
-  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock] = await Promise.all([
+  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock, lastPrices] = await Promise.all([
     fetchAll("inv_items", "*"),
     fetchAll("inv_categories", "*", (q) => q, "name"),
     fetchAll("inv_purchases", "*", (q) => q.eq("purchase_date", date)),
@@ -83,6 +94,7 @@ async function loadAll(date) {
     fetchAll("inv_bills", "*"),                                                       // บิลยอดเงินก่อน
     fetchAll("inv_purchases", "id,bill_id,amount", (q) => q.not("bill_id", "is", null)), // รายการที่ใส่ในบิลแล้ว
     fetchLocStock(date),
+    fetchLastPrices(date),
   ]);
   const billSum = {};
   for (const l of billLines) billSum[l.bill_id] = r2((billSum[l.bill_id] || 0) + A(l.amount));
@@ -92,6 +104,7 @@ async function loadAll(date) {
   for (const y of payments) paidBy[y.purchase_id] = r2((paidBy[y.purchase_id] || 0) + A(y.amount));
   items.sort((a, b) => (a.category || "").localeCompare(b.category || "", "th") || a.name.localeCompare(b.name, "th"));
   return { date, items, cats: cats.filter((c) => c.is_active), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
+    lastBy: Object.fromEntries(lastPrices.map((x) => [x.item_id, x])),
     itemById: Object.fromEntries(items.map((i) => [i.id, i])), stockById: Object.fromEntries(stock.map((s) => [s.item_id, s])) };
 }
 
@@ -120,6 +133,188 @@ const Num = ({ value, onChange, ph, w }) => (
     value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))} />
 );
 
+/* ── ซื้อของแบบร้านลาบ (14 พ.ย. 2569 บอสหนึ่งเลือก ก + ตกหน้าตาตามภาพตัวอย่าง v9) ──
+   ของทุกรายการเรียงในหมวด · กรอกจำนวน × ราคา บันทึกเองเมื่อออกจากช่อง (1 รายการ/สินค้า/วัน ที่ไม่อยู่ในบิล)
+   แต่ละสินค้ามีค่าปกติ คชจ.ของ (for_loc) · ใช้เงิน…จ่าย (paid_from) · VAT — วันไหนต่างจากปกติแตะแก้แถวนั้น (สีเหลือง)
+   ราคาว่าง = ใช้ราคาครั้งก่อน · ต่างจากครั้งก่อนเกิน 10% = เตือน */
+const GROUPS = [
+  ["วัตถุดิบอาหาร — ซื้อทุกวัน", "เนื้อ ผัก เส้น ข้าว แป้ง เครื่องปรุง ขนม",
+    ["ค่าเนื้อ", "ค่าผัก", "ค่าเส้น ข้าวสาร ข้าวเหนียว", "ค่าแป้ง กันบูด", "ค่าเครื่องปรุง", "ค่าแคปหมู ถั่ว ขนม ของหวาน"]],
+  ["เครื่องดื่ม น้ำแข็ง", "เครื่องดื่ม น้ำแข็ง เหล้า เบียร์", ["ค่าเครื่องดื่ม น้ำแข็ง", "ค่าเหล้า เบียร์"]],
+  ["บรรจุภัณฑ์ ของใช้ แก๊ส", "ซื้อเป็นครั้ง ไม่ใช่ทุกวัน",
+    ["ค่าบรรจุภัณฑ์ ช้อนพลาสติก ตะเกียบ ยาง ไม้เสียบลูกชิ้น", "แก็ส น้ำมันรถ ค่าขนส่ง ถ่าน",
+     "ของใช้สิ้นเปลือง ทิชชู่ น้ำยาล้างจาน กระดาษความร้อน ฝอยขัดหม้อ", "อุปกรณ์ ตะแกรง ไม้กวาด"]],
+];
+const QLOC = [["main", "คลังกลาง"], ["ls", "ร้านลาบ"], ["ns", "ก๋วยเตี๋ยว"], ["factory", "โรงลูกชิ้น"], ["gbs", "ซัน"], ["gbk", "เกด"]];
+const QPAY = [["pool", "กองกลาง"], ["drawer", "ลิ้นชักร้าน"], ["transfer", "เงินโอน"], ["credit", "เงินเชื่อ"]];
+const dTH = (d) => { const m = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]; return `${+d.slice(8)} ${m[+d.slice(5, 7) - 1]}`; };
+const entFor = (loc, paid, ent) => (noEnt(paid) ? null : LOC_ENT[loc] || ent || "LS");
+
+function QuickBuy({ data, reload, setMsg, openForm }) {
+  const [draft, setDraft] = useState({}), [open, setOpen] = useState({}), [editCat, setEditCat] = useState(""), [q, setQ] = useState("");
+  const [busy, setBusy] = useState({}), [err, setErr] = useState("");
+  const items = data.items.filter((i) => i.is_active && !i.is_produced);
+  const today = {};   // item_id → รายการวันนี้
+  for (const p of data.purchases) (today[p.item_id] = today[p.item_id] || []).push(p);
+  const single = (id) => { const l = today[id] || []; return l.length === 1 && !l[0].bill_id ? l[0] : null; };
+  const locked = (id) => { const l = today[id] || []; return l.length > 1 || (l.length === 1 && !!l[0].bill_id); };
+  // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า
+  const val = (it) => {
+    const p = single(it.id), d = draft[it.id] || {};
+    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice }
+      : { qty: "", price: "", loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice };
+    return { ...base, ...d };
+  };
+  const last = (id) => data.lastBy[id];
+  const priceOf = (it, v) => (v.price !== "" ? A(v.price) : last(it.id) ? A(last(it.id).unit_price) : null);
+  const setD = (id, k, v) => setDraft((x) => ({ ...x, [id]: { ...x[id], [k]: v } }));
+
+  // บันทึกแถว (ออกจากช่อง/เปลี่ยนตัวเลือก) — จำนวนว่าง = ลบรายการวันนี้
+  const commit = async (it, patch = {}) => {
+    const v = { ...val(it), ...patch }, p = single(it.id), qty = A(v.qty), price = priceOf(it, v);
+    if (!p && !(qty > 0)) { setDraft((x) => { const n = { ...x }; if (patch.loc || patch.paid || patch.inv !== undefined) n[it.id] = { ...n[it.id], ...patch }; else delete n[it.id]; return n; }); return; }
+    if (qty > 0 && price == null) return;   // ยังไม่มีราคา — รอใส่ราคา (แถวสีส้ม)
+    setBusy((b) => ({ ...b, [it.id]: true })); setErr("");
+    try {
+      if (!(qty > 0)) chk(await supabase.from("inv_purchases").delete().eq("id", p.id));
+      else {
+        const row = { qty, unit_price: price, amount: r2(qty * price), for_loc: v.loc, paid_from: v.paid,
+          paid_entity: entFor(v.loc, v.paid, v.ent), has_tax_invoice: !!v.inv };
+        if (p) chk(await supabase.from("inv_purchases").update({ ...row, updated_at: new Date().toISOString() }).eq("id", p.id));
+        else chk(await supabase.from("inv_purchases").insert({ ...row, purchase_date: data.date, item_id: it.id }));
+      }
+      await reload();
+      setDraft((x) => { const n = { ...x }; delete n[it.id]; return n; });
+    } catch (e) { setErr(`${it.name}: ${errText(e)}`); }
+    setBusy((b) => ({ ...b, [it.id]: false }));
+  };
+  // แก้ค่าปกติของสินค้า (โหมด "แก้รายการของ")
+  const saveDef = async (it, k, v) => {
+    try { chk(await supabase.from("inv_items").update({ [k]: v, updated_at: new Date().toISOString() }).eq("id", it.id)); await reload(); }
+    catch (e) { setErr(`${it.name}: ${errText(e)}`); }
+  };
+
+  const qs = q.trim();
+  const shown = (it) => !qs || it.name.includes(qs);
+  const known = new Set(GROUPS.flatMap((g) => g[2]));
+  const otherCats = data.cats.map((c) => c.name).filter((c) => !known.has(c) && items.some((i) => i.category === c));
+  const nocat = items.some((i) => !i.category);
+  const groups = [...GROUPS, ...(otherCats.length || nocat ? [["หมวดอื่น", "", [...otherCats, ...(nocat ? [""] : [])]]] : [])];
+  const diffs = items.filter((it) => { const p = single(it.id), l = last(it.id); return p && l && A(l.unit_price) > 0 && Math.abs(A(p.unit_price) - A(l.unit_price)) / A(l.unit_price) > 0.1; });
+  const quickRows = items.map((it) => single(it.id)).filter(Boolean);
+
+  const restore = async () => {
+    const list = diffs.map((it) => [it, single(it.id)]);
+    if (!list.length) return setMsg("ไม่มีรายการที่ราคาต่างจากครั้งก่อน");
+    if (!window.confirm(`คืนราคาครั้งก่อน ${list.length} รายการ ?`)) return;
+    try {
+      for (const [it, p] of list) { const pr = A(last(it.id).unit_price);
+        chk(await supabase.from("inv_purchases").update({ unit_price: pr, amount: r2(A(p.qty) * pr), updated_at: new Date().toISOString() }).eq("id", p.id)); }
+      setMsg("คืนราคาครั้งก่อนแล้ว"); await reload();
+    } catch (e) { setErr(errText(e)); }
+  };
+  const clearAll = async () => {
+    if (!quickRows.length) { setDraft({}); return; }
+    if (!window.confirm(`ล้างจำนวน = ลบของที่ซื้อวันนี้ ${quickRows.length} รายการ (ไม่รวมที่อยู่ในบิล) ?`)) return;
+    try { for (const p of quickRows) chk(await supabase.from("inv_purchases").delete().eq("id", p.id)); setDraft({}); setMsg("ล้างแล้ว"); await reload(); }
+    catch (e) { setErr(errText(e)); }
+  };
+
+  const renderRow = (it) => {
+    const v = val(it), l = last(it.id), lock = locked(it.id), editing = editCat === (it.category || "");
+    const price = priceOf(it, v), qty = A(v.qty), tot = qty > 0 && price != null ? r2(qty * price) : null;
+    const off = qty > 0 && l && A(l.unit_price) > 0 && price != null && Math.abs(price - A(l.unit_price)) / A(l.unit_price) > 0.1;
+    const pend = qty > 0 && price == null;
+    const defLoc = it.def_for_loc || "main", defPaid = it.def_paid_from || "pool";
+    const chg = (a, b) => (!editing && a !== b ? " chg" : "");
+    const onSel = (k, x) => (editing ? saveDef(it, { loc: "def_for_loc", paid: "def_paid_from" }[k], x) : (setD(it.id, k, x), commit(it, { [k]: x })));
+    return (
+      <div key={it.id} className={"qi" + (pend ? " pend" : "") + (busy[it.id] ? " busy" : "")}>
+        <div className="qn"><b>{it.name}</b>
+          <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(l.unit_price, 2)}</> : "ยังไม่เคยซื้อ"}</small></div>
+        <label className={"qv" + ((editing ? it.def_tax_invoice : v.inv) ? " on" : "")}>
+          <input type="checkbox" disabled={lock} checked={editing ? !!it.def_tax_invoice : !!v.inv}
+            onChange={(e) => (editing ? saveDef(it, "def_tax_invoice", e.target.checked) : (setD(it.id, "inv", e.target.checked), commit(it, { inv: e.target.checked })))} />VAT</label>
+        <div className="qo">
+          <span className="qp"><span className="ql">คชจ.ของ</span>
+            <select className={"qs" + chg(v.loc, defLoc)} disabled={lock} value={editing ? defLoc : v.loc} onChange={(e) => onSel("loc", e.target.value)}>
+              {QLOC.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></span>
+          <span className="qp"><span className="ql">ใช้เงิน</span>
+            <select className={"qs" + chg(v.paid, defPaid)} disabled={lock} value={editing ? defPaid : v.paid} onChange={(e) => onSel("paid", e.target.value)}>
+              {QPAY.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select><span className="ql">จ่าย</span>
+            {!noEnt(editing ? defPaid : v.paid) && (editing ? defLoc : v.loc) === "main" &&
+              <select className="qs" disabled={lock} value={(editing ? it.def_paid_entity : v.ent) || "LS"}
+                onChange={(e) => (editing ? saveDef(it, "def_paid_entity", e.target.value) : (setD(it.id, "ent", e.target.value), commit(it, { ent: e.target.value })))}>
+                {ENTS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>}</span>
+        </div>
+        {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · {it.unit}</div> : lock ? (
+          <div className="qm muted small">มี {(today[it.id] || []).length} รายการวันนี้{(today[it.id] || []).some((p) => p.bill_id) ? " (ในบิล)" : ""} — แก้ในตารางด้านล่าง</div>) : (
+          <div className="qm">
+            <input className="qx" inputMode="decimal" placeholder="—" value={v.qty}
+              onChange={(e) => setD(it.id, "qty", e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => draft[it.id] && commit(it)} />
+            <span className="qu">{it.unit}</span>×
+            <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(l.unit_price, 2) : "ราคา"} value={v.price}
+              onChange={(e) => setD(it.id, "price", e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => draft[it.id] && commit(it)} />=
+            <b className="qt">{tot != null ? fmt(tot, 2) : "—"}</b>
+          </div>)}
+      </div>);
+  };
+
+  return (
+    <div className="card">
+      <div className="bar"><h2 style={{ margin: 0 }}>ซื้อของวันนี้</h2><span className="muted small" style={{ marginLeft: "auto" }}>{data.purchases.length} รายการ</span></div>
+      {diffs.length > 0 && <p className="qwarn">⚠ ราคาต่างจากครั้งก่อนเกิน 10% · <span className="nw">{diffs.length} รายการ</span></p>}
+      <div className="qtools">
+        <button className="ghost sm" onClick={restore}>คืนราคาครั้งก่อน</button>
+        <button className="ghost sm lt" onClick={clearAll}>ล้างจำนวน</button>
+        <input placeholder="หาของ... พิมพ์ 2-3 ตัวอักษร" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {err && <p className="red small">{err}</p>}
+      {!items.length && <p className="muted">ยังไม่มีรายการของ — กด "+ เพิ่มของใหม่" ในหมวด หรือใช้ช่อง "ซื้อของใหม่ / ซื้อครั้งเดียว" ด้านล่าง</p>}
+      {groups.map(([g, sub, cats]) => (
+        <div key={g}>
+          <div className="qg">{g}{sub && <small>{sub}</small>}</div>
+          {cats.map((c) => {
+            const list = items.filter((i) => (i.category || "") === c && shown(i));
+            if (qs && !list.length) return null;
+            const sum = data.purchases.filter((p) => (data.itemById[p.item_id]?.category || "") === c).reduce((t, p) => t + A(p.amount), 0);
+            const isOpen = qs ? true : open[c] ?? false;
+            return (
+              <div key={c || "-"} className={"qc" + (isOpen ? " open" : "")}>
+                <div className="qh" onClick={() => setOpen((o) => ({ ...o, [c]: !isOpen }))}>
+                  <span className="qa">{isOpen ? "▾" : "▸"}</span><span className="qct">{c || "ไม่มีหมวด"}</span>
+                  <span className="muted small">{list.length} รายการ</span><span className="qsum">{sum ? fmt(sum, 2) : "—"}</span></div>
+                {isOpen && <div className="qr">
+                  {editCat === c && <p className="warn small">แก้ค่าปกติของหมวดนี้: เลือก คชจ.ของ / ใช้เงิน / VAT ที่ใช้บ่อย — บันทึกทันที <button className="link" onClick={() => setEditCat(null)}>เสร็จ</button></p>}
+                  {list.map(renderRow)}
+                  <div className="qadd"><button className="link" onClick={() => openForm(c)}>+ เพิ่มของใหม่<span className="lg">ในหมวดนี้</span></button>
+                    <button className="link" onClick={() => setEditCat(editCat === c ? null : c)}>{editCat === c ? "เสร็จ" : <>แก้รายการของ<span className="lg">ในหมวดนี้</span></>}</button></div>
+                </div>}
+              </div>);
+          })}
+        </div>))}
+    </div>
+  );
+}
+
+/* ── ยอดซื้อวันนี้ แยกตาม คชจ.ของ × ใช้เงิน ── */
+function BuySummary({ data }) {
+  if (!data.purchases.length) return null;
+  const by = {}, cols = QPAY.map(([k]) => k);
+  for (const p of data.purchases) { const r = (by[p.for_loc] = by[p.for_loc] || {}); r[p.paid_from] = r2((r[p.paid_from] || 0) + A(p.amount)); }
+  let all = 0;
+  return (
+    <div className="card"><h2>ยอดซื้อวันนี้ แยกตาม คชจ.ของ</h2>
+      <div className="scroll"><table className="grid">
+        <thead><tr><th>คชจ.ของ</th>{QPAY.map(([k, t]) => <th key={k}>{t}</th>)}<th>รวม</th></tr></thead>
+        <tbody>{QLOC.filter(([k]) => by[k]).map(([k, t]) => { const s = cols.reduce((a, c) => a + (by[k][c] || 0), 0); all += s;
+          return <tr key={k}><td>{t}</td>{cols.map((c) => <td key={c} className="r">{by[k][c] ? fmt(by[k][c], 2) : "—"}</td>)}<td className="r b">{fmt(s, 2)}</td></tr>; })}</tbody>
+        <tfoot><tr><td>รวม</td>{cols.map((c) => <td key={c}></td>)}<td className="r">{fmt(all, 2)}</td></tr></tfoot>
+      </table></div>
+      <p className="small muted">คชจ.ของคลังกลาง = เข้าสต๊อกก่อน ร้านกดเบิกทีหลัง · ของร้านไหน = เป็นต้นทุนร้านนั้นทันที</p>
+    </div>);
+}
+
 /* ── เมนูซื้อของ ── */
 const EMPTY = { id: null, name: "", cat: "", unit: "", tier2: false, qty: "", price: "", total: "", last: "total",
   forLoc: "main", paidFrom: "pool", paidEnt: "LS", inv: false, vendor: "", note: "", paidNow: "", nowFrom: "pool", nowEnt: "LS", billId: null, origAmt: 0 };
@@ -128,15 +323,19 @@ const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 
 function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   const [f, setF] = useState(EMPTY), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const formRef = React.useRef(null);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+  const showForm = () => { setFormOpen(true); setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
+  const openForm = (cat) => { setErr(""); setF({ ...EMPTY, cat: cat || "" }); showForm(); };
   // เลือกบิลที่จะใส่สินค้า → ใส่ร้านที่ซื้อ/จ่ายจาก/ใบกำกับ ตามบิลให้
   useEffect(() => {
     const b = billId && data.bills.find((x) => x.id === billId);
-    if (b) setF({ ...EMPTY, billId, vendor: b.vendor_name || "", paidFrom: b.paid_from, paidEnt: b.paid_entity || "LS", inv: b.has_tax_invoice });
+    if (b) { setF({ ...EMPTY, billId, vendor: b.vendor_name || "", paidFrom: b.paid_from, paidEnt: b.paid_entity || "LS", inv: b.has_tax_invoice }); showForm(); }
   }, [billId]);
   const bill = f.billId ? data.bills.find((x) => x.id === f.billId) : null;
   const left = bill ? r2(billLeft(data, bill) + A(f.origAmt)) : 0;   // แก้รายการเดิมในบิล = คืนยอดเดิมก่อน
-  const startBill = (b) => { setErr(""); setBillId(b.id); if (b.bill_date !== data.date) setDate(b.bill_date); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const startBill = (b) => { setErr(""); setBillId(b.id); if (b.bill_date !== data.date) setDate(b.bill_date); showForm(); };
   const endBill = () => { setBillId(null); setF(EMPTY); };
   const known = data.items.find((i) => i.name === f.name.trim());
   // พิมพ์ชื่อสินค้าที่มีอยู่ → ใส่หมวด/หน่วยให้
@@ -194,7 +393,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
       price: String(p.unit_price ?? ""), total: String(p.amount), last: "total", forLoc: p.for_loc, paidFrom: p.paid_from,
       paidEnt: p.paid_entity || "LS", inv: p.has_tax_invoice, vendor: p.vendor_name || "", note: p.note || "", paidNow: "", nowFrom: "pool", nowEnt: "LS",
       billId: p.bill_id || null, origAmt: p.bill_id ? A(p.amount) : 0 });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    showForm();
   };
   const del = async (p) => {
     const it = data.itemById[p.item_id];
@@ -208,8 +407,13 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   return (
     <>
       <BillCard data={data} reload={reload} setMsg={setMsg} startBill={startBill} activeId={f.billId} />
-      <div className="card" style={bill ? { outline: "2px solid var(--accent, #2563eb)" } : null}>
-        <h2>{f.id ? "แก้รายการซื้อ" : bill ? "ใส่สินค้าในบิล" : "ลงของที่ซื้อ"}</h2>
+      <QuickBuy data={data} reload={reload} setMsg={setMsg} openForm={openForm} />
+      <div ref={formRef} className="card" style={bill ? { outline: "2px solid var(--accent, #2563eb)" } : null}>
+        {!(formOpen || f.id || bill) ? (
+          <button className="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => openForm("")}>▸ ซื้อของใหม่ / ซื้อครั้งเดียว <span className="muted small">(กรอกทีละรายการ)</span></button>
+        ) : <>
+        <div className="bar"><h2 style={{ margin: 0 }}>{f.id ? "แก้รายการซื้อ" : bill ? "ใส่สินค้าในบิล" : "ซื้อของใหม่ / ซื้อครั้งเดียว"}</h2>
+          {!f.id && !bill && <button className="link" style={{ marginLeft: "auto" }} onClick={() => { setFormOpen(false); setF(EMPTY); }}>ปิด</button>}</div>
         {bill && <p className="warn small">บิล {dm(bill.bill_date)}{bill.vendor_name ? " · " + bill.vendor_name : ""} ยอด <b>{fmt(bill.amount, 2)}</b> บาท
           · เหลือให้ใส่อีก <b>{fmt(left, 2)}</b> บาท{total ? <> → หลังบันทึกเหลือ <b>{fmt(r2(left - total), 2)}</b></> : null}
           <button className="link" onClick={endBill}>เลิกใส่บิลนี้</button></p>}
@@ -266,6 +470,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
           <button disabled={busy} onClick={save}>{busy ? "กำลังบันทึก…" : f.id ? "บันทึกที่แก้" : "บันทึก"}</button>
           {f.id && <button className="ghost" onClick={endBill}>ยกเลิกแก้</button>}
         </div>
+        </>}
       </div>
 
       <div className="card">
@@ -289,6 +494,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
             <tfoot><tr><td>รวม</td><td></td><td className="r">{fmt(sum, 2)}{sumVat ? <div className="small">VAT {fmt(sumVat, 2)}</div> : null}</td><td colSpan={3}></td></tr></tfoot>
           </table></div>)}
       </div>
+      <BuySummary data={data} />
       <DebtCard data={data} reload={reload} setMsg={setMsg} />
     </>
   );
@@ -338,8 +544,8 @@ function BillCard({ data, reload, setMsg, startBill, activeId }) {
     </tr>);
   return (
     <div className="card">
-      <div className="bar"><h2 style={{ margin: 0 }}>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : null}</h2>
-        {!b && <button className="sm" style={{ marginLeft: "auto" }} onClick={() => { setErr(""); setB({ ...BILL0 }); }}>+ ลงบิล (ยอดเงินก่อน)</button>}</div>
+      <div className="bar" style={{ margin: 0, flexWrap: "nowrap" }}><span>บิลรอใส่รายละเอียด {open.length ? <span className="tag">{open.length} บิล</span> : <span className="muted small">· ไม่มี</span>}</span>
+        {!b && <button className="sm" style={{ marginLeft: "auto", whiteSpace: "nowrap" }} onClick={() => { setErr(""); setB({ ...BILL0 }); }}>+ ลงบิล</button>}</div>
       {b && <div style={{ background: "var(--warn)", padding: 8, borderRadius: "var(--r-input)", margin: "8px 0" }}>
         <div className="row">
           <label>ยอดเงินในบิล (บาท)<Num value={b.amt} onChange={(v) => setB({ ...b, amt: v })} w="8em" /></label>
@@ -355,7 +561,7 @@ function BillCard({ data, reload, setMsg, startBill, activeId }) {
         {err && <p className="red">{err}</p>}
         <div className="row"><button disabled={busy} onClick={save}>{busy ? "กำลังบันทึก…" : b.id ? "บันทึกที่แก้" : "บันทึกบิล"}</button><button className="ghost" onClick={() => setB(null)}>ยกเลิก</button></div>
       </div>}
-      {!open.length && !doneToday.length ? <p className="muted small">ไม่มีบิลค้าง · ใช้เมื่อซื้อหลายอย่างแต่ยังไม่มีเวลาลงทีละรายการ</p> : (
+      {!open.length && !doneToday.length ? null : (
         <div className="scroll"><table className="grid">
           <thead><tr><th>วันที่</th><th>ร้านที่ซื้อ</th><th>ยอดบิล</th><th>ยังขาด</th><th></th></tr></thead>
           <tbody>{open.map((r) => <Row key={r.x.id} {...r} />)}{doneToday.map((r) => <Row key={r.x.id} {...r} />)}</tbody>
@@ -807,12 +1013,12 @@ function App() {
       
       <header>
         <h1>คลังกลาง</h1>
+        <div className="datepill">
+          <button onClick={() => setDate(addDays(date, -1))} aria-label="วันก่อน">‹</button>
+          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+          <button onClick={() => setDate(addDays(date, 1))} aria-label="วันถัดไป">›</button>
+        </div>
       </header>
-      <div className="bar">
-        <button className="ghost sm" onClick={() => setDate(addDays(date, -1))}>‹</button>
-        <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
-        <button className="ghost sm" onClick={() => setDate(addDays(date, 1))}>›</button>
-      </div>
       <nav className="tabs">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}</nav>
       {msg && <div className="toast">{msg}</div>}
       {err && <p className="red pad">โหลดข้อมูลไม่ได้: {err} <button className="link" onClick={() => location.reload()}>รีเฟรช</button></p>}
