@@ -82,7 +82,7 @@ async function fetchLocStock(date) {
 }
 
 async function loadAll(date) {
-  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock, lastPrices] = await Promise.all([
+  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock, lastPrices, groups] = await Promise.all([
     fetchAll("inv_items", "*"),
     fetchAll("inv_categories", "*", (q) => q, "name"),
     fetchAll("inv_purchases", "*", (q) => q.eq("purchase_date", date)),
@@ -95,6 +95,7 @@ async function loadAll(date) {
     fetchAll("inv_purchases", "id,bill_id,amount", (q) => q.not("bill_id", "is", null)), // รายการที่ใส่ในบิลแล้ว
     fetchLocStock(date),
     fetchLastPrices(date),
+    fetchAll("inv_cat_groups", "*", (q) => q, "sort_order"),   // หัวข้อ (19 พ.ย.)
   ]);
   const billSum = {};
   for (const l of billLines) billSum[l.bill_id] = r2((billSum[l.bill_id] || 0) + A(l.amount));
@@ -103,7 +104,8 @@ async function loadAll(date) {
   const paidBy = {};
   for (const y of payments) paidBy[y.purchase_id] = r2((paidBy[y.purchase_id] || 0) + A(y.amount));
   items.sort((a, b) => (a.category || "").localeCompare(b.category || "", "th") || a.name.localeCompare(b.name, "th"));
-  return { date, items, cats: cats.filter((c) => c.is_active), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
+  const bySort = (a, c) => (a.sort_order ?? 0) - (c.sort_order ?? 0) || a.name.localeCompare(c.name, "th");
+  return { date, items, cats: cats.filter((c) => c.is_active).sort(bySort), allCats: [...cats].sort(bySort), groups: [...groups].sort(bySort), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
     lastBy: Object.fromEntries(lastPrices.map((x) => [x.item_id, x])),
     itemById: Object.fromEntries(items.map((i) => [i.id, i])), stockById: Object.fromEntries(stock.map((s) => [s.item_id, s])) };
 }
@@ -137,14 +139,7 @@ const Num = ({ value, onChange, ph, w }) => (
    ของทุกรายการเรียงในหมวด · กรอกจำนวน × ราคา บันทึกเองเมื่อออกจากช่อง (1 รายการ/สินค้า/วัน ที่ไม่อยู่ในบิล)
    แต่ละสินค้ามีค่าปกติ คชจ.ของ (for_loc) · ใช้เงิน…จ่าย (paid_from) · VAT — วันไหนต่างจากปกติแตะแก้แถวนั้น (สีเหลือง)
    ราคาว่าง = ใช้ราคาครั้งก่อน · ต่างจากครั้งก่อนเกิน 10% = เตือน */
-const GROUPS = [
-  ["วัตถุดิบอาหาร — ซื้อทุกวัน", "เนื้อ ผัก เส้น ข้าว แป้ง เครื่องปรุง ขนม",
-    ["ค่าเนื้อ", "ค่าผัก", "ค่าเส้น ข้าวสาร ข้าวเหนียว", "ค่าแป้ง กันบูด", "ค่าเครื่องปรุง", "ค่าแคปหมู ถั่ว ขนม ของหวาน"]],
-  ["เครื่องดื่ม น้ำแข็ง", "เครื่องดื่ม น้ำแข็ง เหล้า เบียร์", ["ค่าเครื่องดื่ม น้ำแข็ง", "ค่าเหล้า เบียร์"]],
-  ["บรรจุภัณฑ์ ของใช้ แก๊ส", "ซื้อเป็นครั้ง ไม่ใช่ทุกวัน",
-    ["ค่าบรรจุภัณฑ์ ช้อนพลาสติก ตะเกียบ ยาง ไม้เสียบลูกชิ้น", "แก็ส น้ำมันรถ ค่าขนส่ง ถ่าน",
-     "ของใช้สิ้นเปลือง ทิชชู่ น้ำยาล้างจาน กระดาษความร้อน ฝอยขัดหม้อ", "อุปกรณ์ ตะแกรง ไม้กวาด"]],
-];
+/* หัวข้อ/หมวด มาจากฐานข้อมูล (inv_cat_groups · inv_categories.group_id/sort_order) — บอสแก้เองที่เมนูสินค้า (19 พ.ย.) */
 const QLOC = [["main", "คลังกลาง"], ["ls", "ร้านลาบ"], ["ns", "ก๋วยเตี๋ยว"], ["factory", "โรงลูกชิ้น"], ["gbs", "ซัน"], ["gbk", "เกด"]];
 const QPAY = [["pool", "กองกลาง"], ["drawer", "ลิ้นชักร้าน"], ["transfer", "เงินโอน"], ["credit", "เงินเชื่อ"]];
 const dTH = (d) => { const m = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]; return `${+d.slice(8)} ${m[+d.slice(5, 7) - 1]}`; };
@@ -196,10 +191,12 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
 
   const qs = q.trim();
   const shown = (it) => !qs || it.name.includes(qs);
-  const known = new Set(GROUPS.flatMap((g) => g[2]));
-  const otherCats = data.cats.map((c) => c.name).filter((c) => !known.has(c) && items.some((i) => i.category === c));
-  const nocat = items.some((i) => !i.category);
-  const groups = [...GROUPS, ...(otherCats.length || nocat ? [["หมวดอื่น", "", [...otherCats, ...(nocat ? [""] : [])]]] : [])];
+  const liveGroups = data.groups.filter((g) => g.is_active);
+  const groups = liveGroups.map((g) => [g.name, g.note || "", data.cats.filter((c) => c.group_id === g.id).map((c) => c.name)]).filter((g) => g[2].length);
+  const grouped = new Set(groups.flatMap((g) => g[2]));
+  const noGroup = (c) => !c.group_id || !data.groups.some((g) => g.id === c.group_id);   // หัวข้อที่ซ่อน = หมวดในนั้นซ่อนด้วย
+  const otherCats = data.cats.filter((c) => noGroup(c) && !grouped.has(c.name) && items.some((i) => i.category === c.name)).map((c) => c.name);
+  if (otherCats.length || items.some((i) => !i.category)) groups.push(["หมวดอื่น", "ยังไม่ได้อยู่ในหัวข้อ", [...otherCats, ...(items.some((i) => !i.category) ? [""] : [])]]);
   const diffs = items.filter((it) => { const p = single(it.id), l = last(it.id); return p && l && A(l.unit_price) > 0 && Math.abs(A(p.unit_price) - A(l.unit_price)) / A(l.unit_price) > 0.1; });
   const quickRows = items.map((it) => single(it.id)).filter(Boolean);
 
@@ -920,6 +917,142 @@ function OverviewTab({ data, setTab, setMsg }) {
 }
 
 /* ── เมนูสินค้า ── */
+/* ── หัวข้อและหมวด (19 พ.ย. 2569 บอสหนึ่ง: เพิ่ม/แก้ไข/เปลี่ยนชื่อ/ย้ายตำแหน่ง ได้เอง) ──
+   หัวข้อ = inv_cat_groups · หมวด = inv_categories (group_id, sort_order)
+   เปลี่ยนชื่อหมวด = ฟังก์ชัน inv_rename_category (ย้ายสินค้า + คู่บัญชีตามไปเอง)
+   เพิ่มหมวด = inv_add_category: ใช้บัญชีเหมือนหมวดเดิม หรือสร้างบรรทัดบัญชีใหม่ทุกร้าน
+   ลบได้เฉพาะที่ว่าง · มีของแล้ว = ซ่อน */
+function CatManager({ data, reload, setMsg }) {
+  const [edit, setEdit] = useState(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false), [showHidden, setShowHidden] = useState(false);
+  const [ng, setNg] = useState({ name: "", note: "" });
+  const [nc, setNc] = useState({ name: "", group: "", mode: "like", like: "", acc: "", food: true });
+  const groups = data.groups.filter((g) => showHidden || g.is_active);
+  const cats = data.allCats.filter((c) => showHidden || c.is_active);
+  const itemCount = (name) => data.items.filter((i) => i.category === name).length;
+  const run = async (fn, ok) => {
+    setBusy(true); setErr("");
+    try { await fn(); if (ok) setMsg(ok); await reload(); } catch (e) { setErr(errText(e)); }
+    setBusy(false);
+  };
+  // ย้ายขึ้น/ลง: เรียงใหม่ทั้งชุดเป็น 10, 20, 30 … แล้วบันทึกเฉพาะที่เปลี่ยน
+  const move = (table, list, i, d, key) => run(async () => {
+    const j = i + d; if (j < 0 || j >= list.length) return;
+    const arr = [...list]; [arr[i], arr[j]] = [arr[j], arr[i]];
+    for (let k = 0; k < arr.length; k++) { const so = (k + 1) * 10;
+      if (arr[k].sort_order !== so) chk(await supabase.from(table).update({ sort_order: so }).eq(key, arr[k][key])); }
+  });
+  const catsIn = (gid) => cats.filter((c) => (gid ? c.group_id === gid : !c.group_id || !data.groups.some((g) => g.id === c.group_id)));
+
+  const saveGroup = (g) => run(async () => {
+    if (!edit.name.trim()) throw new Error("ใส่ชื่อหัวข้อ");
+    chk(await supabase.from("inv_cat_groups").update({ name: edit.name.trim(), note: edit.note.trim() || null }).eq("id", g.id)); setEdit(null);
+  }, "บันทึกหัวข้อแล้ว");
+  const renameCat = (c) => run(async () => {
+    const n = edit.name.trim(); if (n === c.name) { setEdit(null); return; }
+    chk(await supabase.rpc("inv_rename_category", { p_old: c.name, p_new: n })); setEdit(null);
+  }, "เปลี่ยนชื่อหมวดแล้ว");
+  const delGroup = (g) => { if (catsIn(g.id).length) return setErr("ย้ายหรือลบหมวดในหัวข้อนี้ก่อน หรือใช้ปุ่มซ่อน");
+    if (window.confirm(`ลบหัวข้อ "${g.name}" ?`)) run(async () => chk(await supabase.from("inv_cat_groups").delete().eq("id", g.id)), "ลบหัวข้อแล้ว"); };
+  const delCat = (c) => { if (itemCount(c.name)) return setErr(`หมวด "${c.name}" มีสินค้าอยู่ ${itemCount(c.name)} รายการ — ใช้ปุ่มซ่อนแทน`);
+    if (window.confirm(`ลบหมวด "${c.name}" ?`)) run(async () => {
+      chk(await supabase.from("inv_category_accounts").delete().eq("category", c.name));
+      chk(await supabase.from("inv_categories").delete().eq("name", c.name)); }, "ลบหมวดแล้ว"); };
+  const addGroup = () => run(async () => {
+    if (!ng.name.trim()) throw new Error("ใส่ชื่อหัวข้อ");
+    const so = Math.max(0, ...data.groups.map((g) => g.sort_order || 0)) + 10;
+    chk(await supabase.from("inv_cat_groups").insert({ name: ng.name.trim(), note: ng.note.trim() || null, sort_order: so })); setNg({ name: "", note: "" });
+  }, "เพิ่มหัวข้อแล้ว");
+  const addCat = () => run(async () => {
+    if (!nc.name.trim()) throw new Error("ใส่ชื่อหมวด");
+    if (nc.mode === "like" && !nc.like) throw new Error("เลือกหมวดที่จะลงบัญชีเหมือนกัน");
+    if (nc.mode === "new" && !nc.acc.trim()) throw new Error("ใส่ชื่อบรรทัดบัญชีใหม่");
+    const code = chk(await supabase.rpc("inv_add_category", { p_name: nc.name.trim(), p_group: nc.group || null,
+      p_like: nc.mode === "like" ? nc.like : null, p_acc_name: nc.mode === "new" ? nc.acc.trim() : null, p_food: nc.food }));
+    setNc({ name: "", group: nc.group, mode: "like", like: "", acc: "", food: true });
+    if (code) setMsg(`เพิ่มหมวดแล้ว · สร้างบรรทัดบัญชี ${code} ให้ทุกร้าน`);
+  }, nc.mode === "new" ? null : "เพิ่มหมวดแล้ว");
+
+  const Arrows = ({ onUp, onDown, first, last }) => (
+    <span className="nw"><button className="ghost sm arr" disabled={busy || first} onClick={onUp} aria-label="ย้ายขึ้น">▲</button>
+      <button className="ghost sm arr" disabled={busy || last} onClick={onDown} aria-label="ย้ายลง">▼</button></span>);
+  const catRow = (c, i, list) => {
+    const editing = edit?.cat === c.name;
+    return (
+      <div key={c.name} className={"cm-cat" + (c.is_active ? "" : " cm-hid")}>
+        <Arrows first={i === 0} last={i === list.length - 1} onUp={() => move("inv_categories", list, i, -1, "name")} onDown={() => move("inv_categories", list, i, 1, "name")} />
+        {editing ? <>
+          <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} style={{ flex: "1 1 160px" }} autoFocus />
+          <button className="sm" disabled={busy} onClick={() => renameCat(c)}>บันทึก</button><button className="link" onClick={() => setEdit(null)}>ยกเลิก</button>
+        </> : <>
+          <span className="cm-name">{c.name}<small className="muted"> · {itemCount(c.name)} รายการ{c.is_active ? "" : " · ซ่อนอยู่"}</small></span>
+          <select className="cm-sel" value={c.group_id || ""} disabled={busy} title="ย้ายไปหัวข้อ"
+            onChange={(e) => run(async () => chk(await supabase.from("inv_categories").update({ group_id: e.target.value || null, sort_order: 9999 }).eq("name", c.name)), "ย้ายหมวดแล้ว")}>
+            <option value="">— ไม่มีหัวข้อ —</option>{data.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select>
+          <button className="link" onClick={() => { setErr(""); setEdit({ cat: c.name, name: c.name }); }}>เปลี่ยนชื่อ</button>
+          <button className="link" disabled={busy} onClick={() => run(async () => chk(await supabase.from("inv_categories").update({ is_active: !c.is_active }).eq("name", c.name)), c.is_active ? "ซ่อนหมวดแล้ว" : "แสดงหมวดแล้ว")}>{c.is_active ? "ซ่อน" : "แสดง"}</button>
+          {!itemCount(c.name) && <button className="link red" onClick={() => delCat(c)}>ลบ</button>}
+        </>}
+      </div>);
+  };
+
+  return (
+    <div className="card">
+      <div className="bar"><h2 style={{ margin: 0 }}>หัวข้อและหมวด</h2>
+        <label className="chk small" style={{ marginLeft: "auto" }}><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> แสดงที่ซ่อน</label></div>
+      <p className="small muted">ลำดับที่นี่ = ลำดับในหน้าซื้อของ · ▲▼ ย้ายขึ้นลง · เปลี่ยนชื่อหมวดแล้วสินค้าในหมวดย้ายตามเอง · ลบได้เฉพาะที่ว่าง (มีของแล้วใช้ "ซ่อน")</p>
+      {err && <p className="red">{err}</p>}
+      {groups.map((g, gi) => {
+        const editing = edit?.group === g.id, list = catsIn(g.id);
+        return (
+          <div key={g.id} className={"cm-grp" + (g.is_active ? "" : " cm-hid")}>
+            <div className="cm-gh">
+              <Arrows first={gi === 0} last={gi === groups.length - 1} onUp={() => move("inv_cat_groups", groups, gi, -1, "id")} onDown={() => move("inv_cat_groups", groups, gi, 1, "id")} />
+              {editing ? <>
+                <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="ชื่อหัวข้อ" style={{ flex: "1 1 180px" }} autoFocus />
+                <input value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} placeholder="คำอธิบาย (ตัวเล็กสีเทา)" style={{ flex: "1 1 180px" }} />
+                <button className="sm" disabled={busy} onClick={() => saveGroup(g)}>บันทึก</button><button className="link" onClick={() => setEdit(null)}>ยกเลิก</button>
+              </> : <>
+                <b className="cm-name">{g.name}{g.note && <small className="muted"> · {g.note}</small>}{g.is_active ? "" : <small className="muted"> · ซ่อนอยู่</small>}</b>
+                <button className="link" onClick={() => { setErr(""); setEdit({ group: g.id, name: g.name, note: g.note || "" }); }}>แก้ชื่อ</button>
+                <button className="link" disabled={busy} onClick={() => run(async () => chk(await supabase.from("inv_cat_groups").update({ is_active: !g.is_active }).eq("id", g.id)), g.is_active ? "ซ่อนหัวข้อแล้ว" : "แสดงหัวข้อแล้ว")}>{g.is_active ? "ซ่อน" : "แสดง"}</button>
+                {!list.length && <button className="link red" onClick={() => delGroup(g)}>ลบ</button>}
+              </>}
+            </div>
+            {list.map((c, i) => catRow(c, i, list))}
+            {!list.length && <p className="small muted" style={{ margin: "4px 0 8px 12px" }}>ยังไม่มีหมวด</p>}
+          </div>);
+      })}
+      {catsIn(null).length > 0 && <div className="cm-grp"><div className="cm-gh"><b className="cm-name muted">ไม่มีหัวข้อ</b></div>{catsIn(null).map((c, i, l) => catRow(c, i, l))}</div>}
+
+      <h3>เพิ่มหัวข้อ</h3>
+      <div className="row">
+        <label style={{ flex: "1 1 180px" }}>ชื่อหัวข้อ<input value={ng.name} onChange={(e) => setNg({ ...ng, name: e.target.value })} style={{ width: "100%" }} /></label>
+        <label style={{ flex: "1 1 180px" }}>คำอธิบาย<input value={ng.note} onChange={(e) => setNg({ ...ng, note: e.target.value })} style={{ width: "100%" }} /></label>
+        <button disabled={busy} onClick={addGroup} style={{ marginBottom: 8 }}>เพิ่มหัวข้อ</button>
+      </div>
+
+      <h3>เพิ่มหมวด</h3>
+      <div className="row">
+        <label style={{ flex: "1 1 180px" }}>ชื่อหมวด<input value={nc.name} placeholder="เช่น ค่าไข่"
+          onChange={(e) => { const v = e.target.value; setNc((x) => ({ ...x, name: v, acc: !x.acc || x.acc === "ต้นทุน" + x.name.replace(/^ค่า/, "") ? "ต้นทุน" + v.replace(/^ค่า/, "") : x.acc })); }} style={{ width: "100%" }} /></label>
+        <label>อยู่ในหัวข้อ<select value={nc.group} onChange={(e) => setNc({ ...nc, group: e.target.value })}>
+          <option value="">— ไม่มีหัวข้อ —</option>{data.groups.filter((g) => g.is_active).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
+      </div>
+      <p className="small" style={{ margin: "8px 0 4px" }}>เงินที่ซื้อของในหมวดนี้ ไปรวมที่บรรทัดไหนในรายงานกำไร-ขาดทุน</p>
+      <label className="chk"><input type="radio" checked={nc.mode === "like"} onChange={() => setNc({ ...nc, mode: "like" })} /> ใช้บรรทัดเดียวกับหมวด
+        <select value={nc.like} disabled={nc.mode !== "like"} onChange={(e) => setNc({ ...nc, like: e.target.value })} style={{ display: "inline-block", margin: "0 0 0 6px" }}>
+          <option value="">— เลือกหมวด —</option>{data.cats.map((c) => <option key={c.name}>{c.name}</option>)}</select></label>
+      <label className="chk"><input type="radio" checked={nc.mode === "new"} onChange={() => setNc({ ...nc, mode: "new" })} /> สร้างบรรทัดใหม่ชื่อ
+        <input value={nc.acc} disabled={nc.mode !== "new"} onChange={(e) => setNc({ ...nc, acc: e.target.value })} placeholder="เช่น ต้นทุนไข่" style={{ display: "inline-block", width: "11em", margin: "0 0 0 6px" }} /></label>
+      {nc.mode === "new" && <div className="row" style={{ marginLeft: 28 }}>
+        <label className="chk"><input type="radio" checked={nc.food} onChange={() => setNc({ ...nc, food: true })} /> ต้นทุนวัตถุดิบอาหาร</label>
+        <label className="chk"><input type="radio" checked={!nc.food} onChange={() => setNc({ ...nc, food: false })} /> ค่าใช้จ่ายอื่น</label>
+        <span className="small muted" style={{ paddingBottom: 10 }}>สร้างให้ทุกร้าน (ร้านลาบ ก๋วยเตี๋ยว โรงลูกชิ้น ซัน เกด)</span></div>}
+      <button disabled={busy} onClick={addCat} style={{ marginTop: 8 }}>เพิ่มหมวด</button>
+    </div>
+  );
+}
+
 function ItemsTab({ data, reload, setMsg }) {
   const [edits, setEdits] = useState({}), [q, setQ] = useState(""), [busy, setBusy] = useState(false);
   const [nw, setNw] = useState({ name: "", cat: "", unit: "", tier2: false }), [err, setErr] = useState("");
@@ -952,6 +1085,7 @@ function ItemsTab({ data, reload, setMsg }) {
 
   return (
     <>
+      <CatManager data={data} reload={reload} setMsg={setMsg} />
       <div className="card">
         <div className="bar"><h2 style={{ margin: 0 }}>สินค้า ({data.items.length})</h2>
           <input placeholder="ค้นหา" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginLeft: "auto", width: "10em" }} /></div>
