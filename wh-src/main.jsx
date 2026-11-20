@@ -146,7 +146,7 @@ const dTH = (d) => { const m = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.�
 const entFor = (loc, paid, ent) => (noEnt(paid) ? null : LOC_ENT[loc] || ent || "LS");
 
 function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
-  const [draft, setDraft] = useState({}), [open, setOpen] = useState({}), [editCat, setEditCat] = useState(""), [q, setQ] = useState("");
+  const [draft, setDraft] = useState({}), [open, setOpen] = useState({}), [editCat, setEditCat] = useState(""), [q, setQ] = useState(""), [ex, setEx] = useState({});
   const [busy, setBusy] = useState({}), [err, setErr] = useState("");
   const items = data.items.filter((i) => i.is_active && !i.is_produced);
   const today = {};   // item_id → รายการวันนี้
@@ -224,11 +224,16 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
     const pend = qty > 0 && price == null;
     const defLoc = it.def_for_loc || "main", defPaid = it.def_paid_from || "pool";
     const chg = (a, b) => (!editing && a !== b ? " chg" : "");
+    const changed = !editing && (v.loc !== defLoc || v.paid !== defPaid || !!v.inv !== !!it.def_tax_invoice);   // วันนี้ต่างจากค่าปกติ → จุดเหลือง
+    const showOpt = editing || !!ex[it.id];   // ค่าปกติซ่อนไว้ — แตะชื่อเพื่อกาง
     const onSel = (k, x) => (editing ? saveDef(it, { loc: "def_for_loc", paid: "def_paid_from" }[k], x) : (setD(it.id, k, x), commit(it, { [k]: x })));
     return (
       <div key={it.id} className={"qi" + (pend ? " pend" : "") + (busy[it.id] ? " busy" : "")}>
-        <div className="qn"><b>{it.name}</b>
-          <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(l.unit_price, 2)}</> : "ยังไม่เคยซื้อ"}</small></div>
+        <div className="qn" role="button" aria-expanded={showOpt} onClick={() => !editing && setEx((x) => ({ ...x, [it.id]: !x[it.id] }))}>
+          <b>{it.name}</b>{changed && <span className="qdot" title="ต่างจากค่าปกติ">●</span>}
+          <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(l.unit_price, 2)}</> : "ยังไม่เคยซื้อ"}</small>
+          {!editing && <span className="qmore">{showOpt ? "▴" : "⋯"}</span>}</div>
+        {showOpt && <div className="qopt">
         <label className={"qv" + ((editing ? it.def_tax_invoice : v.inv) ? " on" : "")}>
           <input type="checkbox" disabled={lock} checked={editing ? !!it.def_tax_invoice : !!v.inv}
             onChange={(e) => (editing ? saveDef(it, "def_tax_invoice", e.target.checked) : (setD(it.id, "inv", e.target.checked), commit(it, { inv: e.target.checked })))} />VAT</label>
@@ -243,7 +248,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
               <select className="qs" disabled={lock} value={(editing ? it.def_paid_entity : v.ent) || "LS"}
                 onChange={(e) => (editing ? saveDef(it, "def_paid_entity", e.target.value) : (setD(it.id, "ent", e.target.value), commit(it, { ent: e.target.value })))}>
                 {ENTS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>}</span>
-        </div>
+        </div></div>}
         {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · {it.unit}</div> : lock ? (
           <div className="qm muted small">มี {(today[it.id] || []).length} รายการวันนี้{(today[it.id] || []).some((p) => p.bill_id) ? " (ในบิล)" : ""} — แก้ในตารางด้านล่าง</div>) : (
           <div className="qm">
