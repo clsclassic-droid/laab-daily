@@ -106,8 +106,8 @@ const tableProducts=Array.from(new Set([...visibleProducts,...rows.flatMap(r=>r.
 const tableMode=saleView==='table',productColumns=Math.max(1,tableProducts.length),columnCount=tableMode?productColumns+5:6;
 const shipOf=(list:Entry[])=>list.reduce((n,r)=>n+Number(r.shippingAmount||0),0);
 const quantity=(r:Entry,p:string)=>r.items.reduce((n,i)=>n+(i.product===p?i.quantity:0),0);
-const mzFont=Math.max(13.5,15*tableZoom),mzSmall=Math.max(10.5,12*tableZoom),mzt=(t:string,w=600,size=mzFont)=>mzTextWidth(t,w,size);
-const mzCust=!tableMode?0:Math.ceil(Math.max(mzt('ลูกค้า',700)+34,mzt('รวม '+rows.length+' รายการ'),...rows.map(r=>mzt(canonical(r.customer,b))),...dayGroups.map(d=>22+mzt(dateText(d.date),700)+mzt(' · '+d.rows.length+' รายการ',400,mzFont*.8)))+14);
+const mzFont=Math.max(13.5*Math.min(1,tableZoom/.5),15*tableZoom),mzSmall=Math.max(10.5*Math.min(1,tableZoom/.5),12*tableZoom),mzNarrow=typeof window!=='undefined'&&window.matchMedia('(max-width:560px)').matches,mzt=(t:string,w=600,size=mzFont)=>mzTextWidth(t,w,size);
+const mzCust=!tableMode?0:Math.ceil(Math.max(mzt('ลูกค้า',700)+34,mzt('รวม '+rows.length+' รายการ'),...rows.map(r=>mzt(canonical(r.customer,b))),...dayGroups.map(d=>22+mzt(dateText(d.date),700)+(mzNarrow?0:mzt(' · '+d.rows.length+' รายการ',400,mzFont*.8))))+14);
 const mzProduct=!tableMode?0:Math.ceil(Math.max(mzt('0'),...tableProducts.flatMap(p=>[...matrixLabelParts(label(p)).map(x=>mzt(x,700)),mzt(unit(p),400,mzSmall),mzt(fmt(rows.reduce((n,r)=>n+quantity(r,p),0)))]),...rows.flatMap(r=>tableProducts.map(p=>{const n=quantity(r,p);return n?mzt(fmt(n)):0;})))+14);
 const mzMoney=!tableMode?0:Math.ceil(Math.max(...['ยอดขาย','จ่าย','ค้าง','ค่าส่ง'].map(t=>mzt(t,700)),...dayGroups.flatMap(d=>[d.total,d.paid,d.balance].map(n=>mzt(fmt(n)))),...[dayGroups.reduce((n,d)=>n+d.total,0),dayGroups.reduce((n,d)=>n+d.paid,0),dayGroups.reduce((n,d)=>n+d.balance,0),shipOf(rows)].map(n=>mzt(fmt(n)))) +14);
 const matrixWidths=tableProducts.map(()=>mzProduct);

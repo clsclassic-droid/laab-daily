@@ -568,7 +568,7 @@ header{padding-top:8px;padding-bottom:8px}
 .sale-workspace .sales-matrix.mz>table>colgroup>.customer-column,.sale-workspace .sales-matrix.mz>table>thead>tr>th:first-child{width:var(--mz-cust,200px)!important}
 .sale-workspace .sales-matrix.mz>table>colgroup>.money-column{width:var(--mz-money,96px)!important}
 .sale-workspace .sales-matrix.mz>table>thead>tr>th:not(:first-child){width:auto!important}
-.sale-workspace .sales-matrix.mz>table>thead>tr>th,.sale-workspace .sales-matrix.mz>table>tbody>tr>td,.sale-workspace .sales-matrix.mz>table>tfoot>tr>td{font-size:max(13.5px,calc(15px * var(--mz,1)))!important;line-height:1.25!important;padding:2px 4px!important;height:auto!important;color:#17222d}
+.sale-workspace .sales-matrix.mz>table>thead>tr>th,.sale-workspace .sales-matrix.mz>table>tbody>tr>td,.sale-workspace .sales-matrix.mz>table>tfoot>tr>td{font-size:max(calc(13.5px * min(1,var(--mz,1) / .5)),calc(15px * var(--mz,1)))!important;line-height:1.25!important;padding:2px 4px!important;height:auto!important;color:#17222d}
 .sale-workspace .sales-matrix.mz>table>tbody>.sale-summary-row{height:auto!important}
 .sale-workspace .sales-matrix.mz>table>tbody>tr>td:first-child{white-space:normal}
 .sale-workspace .sales-matrix.mz .sale-customer{max-width:100%;min-height:0!important;height:auto;padding:1px 0!important;font-size:inherit;line-height:1.25}
@@ -576,7 +576,7 @@ header{padding-top:8px;padding-bottom:8px}
 .sale-workspace .sales-matrix.mz>table>thead>tr>th{font-weight:700;padding:4px 2px!important}
 .sale-workspace .sales-matrix.mz>table>thead>tr>.matrix-product{white-space:normal;line-height:1.2}
 .sale-workspace .sales-matrix.mz .matrix-label-part{white-space:nowrap}
-.sale-workspace .sales-matrix.mz .matrix-product small{font-size:max(10.5px,calc(12px * var(--mz,1)));font-weight:400}
+.sale-workspace .sales-matrix.mz .matrix-product small{font-size:max(calc(10.5px * min(1,var(--mz,1) / .5)),calc(12px * var(--mz,1)));font-weight:400}
 .sale-workspace .sales-matrix.mz .matrix-quantity{font-weight:600}
 .sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .day-add{min-height:0!important;padding-top:1px!important;padding-bottom:1px!important;font-size:inherit}
 .sale-workspace .sales-matrix.mz .day-toggle strong{font-size:inherit!important}
@@ -584,9 +584,9 @@ header{padding-top:8px;padding-bottom:8px}
 /* ย่อ–ขยายตาราง หน้า ผลิต · ย้อนหลัง · สรุปยอด (table-zoom.tsx) — ตัวหนังสือ ≥13.5px คอลัมน์พอดีตัวหนังสือ */
 .mzt.mzt table{table-layout:auto!important;width:max-content!important;min-width:0!important}
 .mzt.mzt col{width:auto!important}
-.mzt.mzt table th,.mzt.mzt table td{font-size:max(13.5px,calc(15px * var(--mz,1)))!important;line-height:1.25!important;padding:2px 6px!important;height:auto!important;min-width:0!important;width:auto!important;white-space:nowrap}
+.mzt.mzt table th,.mzt.mzt table td{font-size:max(calc(13.5px * min(1,var(--mz,1) / .5)),calc(15px * var(--mz,1)))!important;line-height:1.25!important;padding:2px 6px!important;height:auto!important;min-width:0!important;width:auto!important;white-space:nowrap}
 .mzt.mzt table th{font-weight:700}
-.mzt.mzt table th small,.mzt.mzt table td small{font-size:max(10.5px,calc(12px * var(--mz,1)))!important}
+.mzt.mzt table th small,.mzt.mzt table td small{font-size:max(calc(10.5px * min(1,var(--mz,1) / .5)),calc(12px * var(--mz,1)))!important}
 .mzt.mzt .entrygrid input,.mzt.mzt .entrygrid select{font-size:inherit!important;padding:2px 4px!important;min-height:0!important;height:auto;width:5em;min-width:0}
 .mzt.mzt .entrygrid .customer input,.mzt.mzt .entrygrid .customer select{width:9em}
 .mzt.mzt .entrygrid .datecell input{width:7.5em}
@@ -617,3 +617,6 @@ header{padding-top:8px;padding-bottom:8px}
 .sale-workspace .daily-sales td.cust-internal,.sale-workspace .daily-sales td.cust-internal .sale-customer{background:#dbeafe!important}
 .sale-workspace .daily-sales td.cust-error,.sale-workspace .daily-sales td.cust-error .sale-customer{background:#fed7aa!important}
 .sale-workspace .sales-matrix td.matrix-quantity.red{color:#c81e1e!important;font-weight:700}
+
+/* มือถือ: ตัดจำนวนรายการในแถบวันที่ของตารางขาย (24 พ.ย.) */
+@media(max-width:560px){.sale-workspace .sales-matrix .day-count{display:none}}

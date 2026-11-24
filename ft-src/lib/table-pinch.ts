@@ -1,4 +1,4 @@
-export const clampTableZoom=(value:number)=>Math.max(.5,Math.min(1.6,value));
+export const clampTableZoom=(value:number)=>Math.max(.3,Math.min(1.6,value));
 export function touchDistance(touches:ArrayLike<{clientX:number;clientY:number}>){return touches.length===2?Math.hypot(touches[1].clientX-touches[0].clientX,touches[1].clientY-touches[0].clientY):0;}
 // Native listeners must be non-passive to consume only the two-finger gesture.
 export function bindTablePinch(element:HTMLElement,getZoom:()=>number,setZoom:(n:number)=>void){
