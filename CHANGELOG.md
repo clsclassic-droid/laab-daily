@@ -451,3 +451,10 @@
   - เมนูย้ายของ: จาก ร้านก๋วยเตี๋ยว → **ร้านก๋วยเตี๋ยวใช้เอง** (inv_moves kind use)
   - สร้างบิลหลายใบ ถ้าขั้นไหนพลาด ยกเลิกบิลที่สร้างไปแล้วคืนอัตโนมัติ
 - ทดสอบ: `ft_save_record` บิลคู่ ซัน −1 / ร้านก๋วยเตี๋ยวดาวเทียม +1 / คืน −0.5 + insert kind use ในฐานข้อมูลแบบย้อนกลับ ผ่าน · ยังไม่ได้กดจริงบนเว็บ
+
+## 2026-11-25 11:50 — FT ตารางขาย: ชื่อลูกค้า/วันที่ย่อตามตัวเลข (บอสหนึ่งเลือกแบบ ก + "แก้เลย")
+- สาเหตุ: กฎ `.workspace button{font-size:var(--type-body)!important}` บังขนาดของปุ่มชื่อลูกค้า (`.sale-customer`) และปุ่มวันที่ (`.day-toggle`) ให้คงที่ 14px ขณะตัวเลขย่อตามปุ่ม −/+ (เหลือ 8.1px ที่ 30%)
+- แก้: `ft-build/overlay/app/globals.css` เพิ่ม `.sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .sale-customer{font-size:inherit!important}`
+- ไฟล์ที่ใช้จริง: patch ตรงใน `ft/assets/index-BsoRgV7M.css` (+ `ft-test/assets/index-BsoRgV7M.css`) ไม่ได้ build ใหม่ เพราะ build ซ้ำไม่ได้ไบต์เดียวกัน (ดู HANDOFF 24 พ.ย.)
+- ทดสอบหน้าจำลอง (Chrome, CSS จริง): ที่ 30% / 50% / 100% ชื่อลูกค้า = วันที่ = ตัวเลข = 8.1 / 13.5 / 15px · ยังไม่ได้ดูตารางจริงหลังล็อกอิน
+- ไม่แตะ: ปุ่ม "เพิ่มแถว" (ยังขนาดเดิมเพื่อให้กดง่าย)

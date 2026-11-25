@@ -578,7 +578,7 @@ header{padding-top:8px;padding-bottom:8px}
 .sale-workspace .sales-matrix.mz .matrix-label-part{white-space:nowrap}
 .sale-workspace .sales-matrix.mz .matrix-product small{font-size:max(calc(10.5px * min(1,var(--mz,1) / .5)),calc(12px * var(--mz,1)));font-weight:400}
 .sale-workspace .sales-matrix.mz .matrix-quantity{font-weight:600}
-.sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .day-add{min-height:0!important;padding-top:1px!important;padding-bottom:1px!important;font-size:inherit}
+.sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .day-add{min-height:0!important;padding-top:1px!important;padding-bottom:1px!important;font-size:inherit}.sale-workspace .sales-matrix.mz .day-toggle,.sale-workspace .sales-matrix.mz .sale-customer{font-size:inherit!important}
 .sale-workspace .sales-matrix.mz .day-toggle strong{font-size:inherit!important}
 .sale-workspace .sales-matrix.mz .day-count{font-size:.8em}
 /* ย่อ–ขยายตาราง หน้า ผลิต · ย้อนหลัง · สรุปยอด (table-zoom.tsx) — ตัวหนังสือ ≥13.5px คอลัมน์พอดีตัวหนังสือ */
