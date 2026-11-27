@@ -93,6 +93,11 @@ const BOXES = [
   { key: "daily", title: "ค่าใช้จ่ายดำเนินงาน",         hint: "ค่าแรง ค่าข้าวพนักงาน ค่าน้ำมัน ค่าแก๊ส ค่าเช่าอุปกรณ์ เบ็ดเตล็ด" },
 ];
 const catsIn = (box) => Object.keys(CATS).filter((c) => CATS[c].box === box);
+/* ตั้งแต่ 1 ธ.ค. 2569 ซื้อของกรอกที่หน้าคลังกลางที่เดียว → หมวดซื้อของหน้าร้านดูอย่างเดียว
+   (ค่าแรง/ข้าวพนักงาน/น้ำมัน/แก๊ส/เช่าอุปกรณ์/เบ็ดเตล็ด และ "ลูกชิ้น Grab จ่ายเกด" ยังกรอกได้ · วันก่อน 1 ธ.ค. ไม่เปลี่ยน) */
+const WH_ONLY_FROM = "2026-12-01";
+const WH_ONLY_BOXES = ["food", "bev", "pack"];
+const isWhOnlyCat = (c, d) => d >= WH_ONLY_FROM && WH_ONLY_BOXES.includes(CATS[c].box) && c !== "gbk";
 
 const ACC = {
   [`1010${SFX}`]: "เงินสดในร้าน",
@@ -3159,6 +3164,7 @@ function LaabEntryApp({ userEmail }) {
     const waiting = A(r.qty) !== 0 && !has(r.amt);
     const conf = isConflict(r);
     const pk = payOf(r);
+    const ro = isWhOnlyCat(it.cat, date);
     return (
       <React.Fragment key={it.id}>
         <div ref={(el) => { rowRef.current[it.id] = el; }}
@@ -3171,31 +3177,33 @@ function LaabEntryApp({ userEmail }) {
           )}
           </span>
 
+          {ro ? <span className={`f-vend${pk === "ns" ? " ns" : ""}`}>{r.vendor}</span> : (
           <VendorPicker className={`f-vend${pk === "ns" ? " ns" : ""}`} value={r.vendor}
             ariaLabel={`ร้านที่ซื้อ ${it.name}`}
             onChange={(v) => setVend(it.id, v)}
             onCommit={(v) => ensureVendorDB(v)}
             options={Object.keys(vendors)} />
+          )}
 
-          <select className={`f-pay p-${pk}`} value={pk} aria-label={`วิธีจ่าย ${it.name}`}
+          <select className={`f-pay p-${pk}`} value={pk} aria-label={`วิธีจ่าย ${it.name}`} disabled={ro}
             onChange={(e) => setPay(it.id, e.target.value)}>
             {PAY_KEYS.map((k) => <option key={k} value={k}>{PAY[k].label}</option>)}
           </select>
 
           <input className={`f-qty${r.tq ? " typed" : ""}`} inputMode="decimal" placeholder="—"
-            aria-label={`จำนวน ${it.name}`} value={show(it.id, "qty")} {...fProps(it.id, "qty")}
+            aria-label={`จำนวน ${it.name}`} value={show(it.id, "qty")} {...fProps(it.id, "qty")} disabled={ro}
             onChange={(e) => edit(it.id, "qty", e.target.value)} />
           <span className="iunit">{it.unit}</span>
           <span className="op ox">×</span>
 
           <input className={`f-rate${r.tr ? " typed" : ""}${f ? (f.up ? " flagup" : " flagdown") : ""}`}
             inputMode="decimal" aria-label={`ราคาต่อหน่วย ${it.name}`}
-            value={show(it.id, "rate")} {...fProps(it.id, "rate")}
+            value={show(it.id, "rate")} {...fProps(it.id, "rate")} disabled={ro}
             onChange={(e) => edit(it.id, "rate", e.target.value)} />
           <span className="op eq">=</span>
 
           <input className={`f-amt${r.ta ? " typed" : ""}`} inputMode="decimal" placeholder="—"
-            aria-label={`ยอดรวม ${it.name}`} value={show(it.id, "amt")} {...fProps(it.id, "amt")}
+            aria-label={`ยอดรวม ${it.name}`} value={show(it.id, "amt")} {...fProps(it.id, "amt")} disabled={ro}
             onChange={(e) => edit(it.id, "amt", e.target.value)} />
 
           {waiting && <span className="rowmsg wait">ยังไม่มียอดเงิน — ใส่ราคาหรือยอดรวม</span>}
@@ -3809,6 +3817,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                 <div className="boxhead"><b>{b.title}</b><em>{b.hint}</em></div>
                 {catsIn(b.key).map((c) => {
                   const cnt = catCount(c), whT = c === "wage" ? 0 : whCatTotal(c), tot = r2(catTotal(c) + whT);
+                  const lock = isWhOnlyCat(c, date);
                   return (
                     <div className="cgroup" key={c}>
                       <button className="chead" onClick={() => toggle(c)} aria-expanded={isOpen(c)}>
@@ -3859,7 +3868,14 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                         </div>
                       ) : isOpen(c) && (
                         <div className="cbody">
-                          {editCat === c ? (
+                          {lock ? (
+                            <>
+                              <p className="enote" style={{ marginTop: 0 }}>
+                                ตั้งแต่ 1 ธ.ค. 2569 <b>ซื้อของกรอกที่หน้าคลังกลางที่เดียว</b> — หน้านี้ดูอย่างเดียว (ยอดจากคลังกลางขึ้นให้อัตโนมัติ)
+                              </p>
+                              {inCat(c).filter((it) => A(R(it.id).qty) !== 0 || A(R(it.id).amt) !== 0).map(renderRow)}
+                            </>
+                          ) : editCat === c ? (
                             <>
                               <div className="ehead">
                                 <span>แก้ชื่อของ · หน่วย · ร้านประจำ ได้เลย พิมพ์ทับได้ทันที · ลากที่จุดๆ ด้านซ้ายเพื่อจัดลำดับ</span>
@@ -3871,7 +3887,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                               </p>
                             </>
                           ) : inCat(c).map(renderRow)}
-                          {newFor === c ? (
+                          {newFor === c && !lock ? (
                             <div className="addrow">
                               <input className="a-name" placeholder="ชื่อของใหม่" value={nn}
                                 onChange={(e) => setNn(e.target.value)}
@@ -3891,10 +3907,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                                   <span>{w.title.replace(/^เบิกจากคลังกลาง\s*/, "")} <em>· จากคลังกลาง (แก้ที่หน้าคลังกลาง)</em></span>
                                   <span className="v">{money(w.codes[CATS[c].code])}</span>
                                 </span>))}
-                              <button className="newlink" onClick={() => setNewFor(c)}>+ เพิ่มของใหม่ในหมวดนี้</button>
-                              <button className="newlink" onClick={() => setEditCat(editCat === c ? null : c)}>
+                              {!lock && <button className="newlink" onClick={() => setNewFor(c)}>+ เพิ่มของใหม่ในหมวดนี้</button>}
+                              {!lock && <button className="newlink" onClick={() => setEditCat(editCat === c ? null : c)}>
                                 {editCat === c ? "เลิกแก้รายการ" : "แก้รายการของในหมวดนี้"}
-                              </button>
+                              </button>}
                             </span>
                           )}
                         </div>
