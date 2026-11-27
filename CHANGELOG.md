@@ -482,3 +482,7 @@
 - ประวัติซื้อ/ย้ายผูกกับ `item_id` ไม่กระทบ
 - `wh/index.html`: CSS `input.qrename`
 - ทดสอบ: Playwright + Supabase จำลอง → ส่ง PATCH `inv_items` {name} ถูกต้อง ไม่มี error
+
+## 2026-11-27 14:50 — คลังกลาง: ช่องเปลี่ยนชื่อไม่ทับ "ยังไม่เคยซื้อ" (บอสหนึ่ง "แก้เลย" 14:46)
+- `wh/index.html`: `.qn[aria-expanded=true]:has(.qrename) small{margin-top:4px}` (เดิม −6px ดึงบรรทัดขึ้นไปทับเส้นใต้ช่องพิมพ์) · ไม่ต้อง build
+- ทดสอบ: Playwright หน้าจำลอง ช่องพิมพ์โฟกัสอยู่ บรรทัดด้านล่างไม่ทับแล้ว
