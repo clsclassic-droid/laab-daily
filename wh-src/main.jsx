@@ -234,7 +234,13 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
     return (
       <div key={it.id} className={"qi" + (pend ? " pend" : "") + (busy[it.id] ? " busy" : "")}>
         <div className="qn" role="button" aria-expanded={showOpt} onClick={() => !editing && setEx((x) => ({ ...x, [it.id]: !x[it.id] }))}>
-          <b>{it.name}</b>{changed && <span className="qdot" title="ต่างจากค่าปกติ">●</span>}
+          {editing ? <input className="qrename" aria-label="ชื่อสินค้า" value={draft[it.id]?.nm ?? it.name}
+              onClick={(e) => e.stopPropagation()} onChange={(e) => setD(it.id, "nm", e.target.value)}
+              onBlur={(e) => { const x = e.target.value.trim(); const drop = () => setDraft((o) => { const n = { ...o }; if (n[it.id]) { const { nm, ...r } = n[it.id]; n[it.id] = r; } return n; });
+                if (!x || x === it.name) return drop();
+                if (data.items.some((i) => i.id !== it.id && i.name === x)) { setErr(`มีสินค้าชื่อ "${x}" แล้ว`); return drop(); }
+                saveDef(it, "name", x).then(drop); }} />
+            : <b>{it.name}</b>}{changed && <span className="qdot" title="ต่างจากค่าปกติ">●</span>}
           <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(l.unit_price, 2)}</> : "ยังไม่เคยซื้อ"}</small>
           {!editing && <span className="qmore">{showOpt ? "▴" : "⋯"}</span>}</div>
         {showOpt && <div className="qopt">
@@ -259,7 +265,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
                 onChange={(e) => (editing ? saveDef(it, "def_paid_entity", e.target.value) : (setD(it.id, "ent", e.target.value), commit(it, { ent: e.target.value })))}>
                 {ENTS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>}</span>
         </div></div>}
-        {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · {it.unit}</div> : lock ? (
+        {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · แตะชื่อเพื่อเปลี่ยนชื่อ · {it.unit}</div> : lock ? (
           <div className="qm muted small">มี {(today[it.id] || []).length} รายการวันนี้{(today[it.id] || []).some((p) => p.bill_id) ? " (ในบิล)" : ""} — แก้ในตารางด้านล่าง</div>) : (
           <div className="qm">
             <input className="qx" inputMode="decimal" placeholder="—" value={v.qty}
@@ -299,7 +305,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
                   <span className="qa">{isOpen ? "▾" : "▸"}</span><span className="qct">{c || "ไม่มีหมวด"}</span>
                   <span className="muted small">{list.length} รายการ</span><span className="qsum">{sum ? fmt(sum, 2) : "—"}</span></div>
                 {isOpen && <div className="qr">
-                  {editCat === c && <p className="warn small">แก้ค่าปกติของหมวดนี้: เลือก คชจ.ของ / ใช้เงิน / VAT ที่ใช้บ่อย — บันทึกทันที <button className="link" onClick={() => setEditCat(null)}>เสร็จ</button></p>}
+                  {editCat === c && <p className="warn small">แก้ค่าปกติของหมวดนี้: แก้ชื่อ / เลือก คชจ.ของ / ใช้เงิน / VAT ที่ใช้บ่อย — บันทึกทันที <button className="link" onClick={() => setEditCat(null)}>เสร็จ</button></p>}
                   {list.map(renderRow)}
                   <div className="qadd"><button className="link" onClick={() => openForm(c)}>+ เพิ่มของใหม่<span className="lg">ในหมวดนี้</span></button>
                     <button className="link" onClick={() => setEditCat(editCat === c ? null : c)}>{editCat === c ? "เสร็จ" : <>แก้รายการของ<span className="lg">ในหมวดนี้</span></>}</button></div>
