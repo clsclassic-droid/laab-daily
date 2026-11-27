@@ -1,5 +1,5 @@
 import "../shared/tokens.js";
-// หน้า "คลังกลาง + ซื้อของ" (หน้าจริง ตั้งแต่ 13 พ.ย. 2569) — 4 เมนู: ภาพรวม · ซื้อของ · คลัง/เบิก · สินค้า
+// หน้า "คลังกลาง + ซื้อของ" (หน้าจริง ตั้งแต่ 13 พ.ย. 2569) — 4 เมนู: ภาพรวม · ซื้อของ · สต๊อก · สินค้า
 // ข้อมูล: inv_purchases (+ ซื้อเชื่อ inv_purchase_payments) · inv_moves (เบิก/คืน/ของเสีย from_loc/to_loc = 'main') · inv_items · inv_categories
 // ภาพรวมต่อกิจการ = ฟังก์ชัน wh_overview (รวมสมุดบัญชีที่ฐานข้อมูล)
 // ลงบัญชีอัตโนมัติที่ฐานข้อมูล (trigger wh_after_change → ใบบัญชี wh_purchase / wh_pay / wh_draw ผูก source_id)
@@ -650,74 +650,99 @@ function DebtCard({ data, reload, setMsg }) {
   );
 }
 
-/* ── เมนูคลัง/เบิก ── */
+/* ── เมนูสต๊อก (27 พ.ย. 2569 บอสหนึ่ง "แก้เลย"): รายการของในคลังกลาง · แตะชื่อ → เลือกร้าน + จำนวน → ย้าย / ของเสีย ──
+   ย้ายไปร้าน = ร้านนั้นใช้ไปแล้ว (ต้นทุนร้านตามราคาเฉลี่ย) เหมือนการเบิกเดิม (inv_moves kind draw) */
+const MOVE_TO = [["ls", "ร้านลาบ"], ["ns", "ก๋วยเตี๋ยว"], ["factory", "โรงลูกชิ้น"], ["gbs", "ซัน"], ["gbk", "เกด"]];
 function StockTab({ data, reload, setMsg }) {
-  const [to, setTo] = useState("ls"), [itemId, setItemId] = useState(""), [qty, setQty] = useState(""), [note, setNote] = useState("");
-  const [editId, setEditId] = useState(null), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [all, setAll] = useState(false);
-  const stockRows = data.items.map((i) => ({ it: i, s: data.stockById[i.id] })).filter(({ s }) => s && (all || A(s.qty) !== 0));
-  const inStock = stockRows.filter(({ s }) => A(s.qty) > 0);
-  const totalVal = stockRows.reduce((t, { s }) => t + A(s.value), 0);
-  const cur = data.stockById[itemId];
+  const [op, setOp] = useState(null);   // { id, to, qty, note, editId }
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [all, setAll] = useState(false), [q, setQ] = useState("");
+  const qs = q.trim();
+  const rows = data.items.map((it) => ({ it, s: data.stockById[it.id] }))
+    .filter(({ it, s }) => s && (all || A(s.qty) !== 0) && (!qs || it.name.includes(qs)));
+  const cats = [...new Set(rows.map(({ it }) => it.category || ""))];
+  const totalVal = r2(rows.reduce((t, { s }) => t + A(s.value), 0));
 
-  const save = async () => {
+  const openRow = (it) => { setErr(""); setOp((o) => (o && o.id === it.id && !o.editId ? null : { id: it.id, to: o?.to && o.to !== "waste" ? o.to : "ls", qty: "", note: "", editId: null })); };
+  const save = async (waste) => {
     setErr("");
-    if (!itemId) return setErr("เลือกสินค้า");
-    if (!(A(qty) > 0)) return setErr("ใส่จำนวน");
+    const it = data.itemById[op.id], to = waste ? "waste" : op.to, qty = A(op.qty);
+    if (!(qty > 0)) return setErr("ใส่จำนวน");
     setBusy(true);
     try {
-      const waste = to === "waste";
-      const row = { move_date: data.date, kind: waste ? "waste" : "draw", item_id: itemId, qty: A(qty), from_loc: "main", to_loc: waste ? null : to, source: "wh", note: note.trim() || null };
-      if (editId) chk(await supabase.from("inv_moves").update(row).eq("id", editId));
+      const row = { move_date: data.date, kind: waste ? "waste" : "draw", item_id: op.id, qty, from_loc: "main", to_loc: waste ? null : to, source: "wh", note: op.note.trim() || null };
+      if (op.editId) chk(await supabase.from("inv_moves").update(row).eq("id", op.editId));
       else chk(await supabase.from("inv_moves").insert(row));
-      setMsg(editId ? "แก้แล้ว" : to === "waste" ? "บันทึกของเสียแล้ว" : "เบิกแล้ว");
-      setEditId(null); setQty(""); setNote(""); setItemId("");
-      await reload();
+      setMsg(op.editId ? "แก้แล้ว" : waste ? `บันทึกของเสีย ${it?.name} แล้ว` : `ย้าย ${it?.name} ${fmt(qty)} ${it?.unit || ""} ไป${LOC_NAME[to]} แล้ว`);
+      setOp(null); await reload();
     } catch (e) { setErr(errText(e)); }
     setBusy(false);
   };
-  const edit = (m) => { setEditId(m.id); setItemId(m.item_id); setQty(String(m.qty)); setTo(m.kind === "waste" ? "waste" : m.to_loc); setNote(m.note || ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const edit = (m) => { setErr(""); setOp({ id: m.item_id, to: m.kind === "waste" ? "waste" : m.to_loc, qty: String(m.qty), note: m.note || "", editId: m.id }); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const del = async (m) => {
     const it = data.itemById[m.item_id];
-    if (!window.confirm(`ลบ${m.kind === "waste" ? "ของเสีย" : "การเบิก"} "${it?.name}" ${fmt(m.qty)} ${it?.unit || ""}${m.to_loc ? " ไป" + (LOC_NAME[m.to_loc] || "") : ""} ? (ของจะกลับเข้าคลัง)`)) return;
+    if (!window.confirm(`ลบ${m.kind === "waste" ? "ของเสีย" : "การย้าย"} "${it?.name}" ${fmt(m.qty)} ${it?.unit || ""}${m.to_loc ? " ไป" + (LOC_NAME[m.to_loc] || "") : ""} ? (ของจะกลับเข้าคลัง)`)) return;
     try { chk(await supabase.from("inv_moves").delete().eq("id", m.id)); setMsg("ลบแล้ว"); await reload(); }
     catch (e) { window.alert(errText(e)); }
   };
   const draws = [...data.moves].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  // แถวที่กำลังแก้ แต่ของหมดแล้ว (ไม่อยู่ในรายการ) → แสดงไว้บนสุด
+  const editOnly = op?.editId && !rows.some(({ it }) => it.id === op.id) ? data.itemById[op.id] : null;
+
+  const renderRow = (it, s) => {
+    const on = op && op.id === it.id, cost = on && A(op.qty) > 0 && s ? r2(A(op.qty) * A(s.avg_cost)) : null;
+    const isWaste = on && op.to === "waste";
+    return (
+      <div key={it.id} className={"qi st" + (on ? " on" : "")}>
+        <div className="qn" role="button" aria-expanded={!!on} onClick={() => openRow(it)}>
+          <b>{it.name}</b>{it.tier === 2 && <span className="tag">นับสิ้นเดือน</span>}
+          <span className="qmore">{on ? "▴" : "⋯"}</span></div>
+        <div className="sq"><b className={A(s?.qty) < 0 ? "red" : ""}>{s ? fmt(s.qty) : "0"}</b> <span className="qu">{it.unit}</span>
+          {s && A(s.value) ? <small className="muted"> · {fmt(s.value, 0)} บ.</small> : null}</div>
+        {on && <div className="qopt sto">
+          {op.editId && <p className="warn small" style={{ flexBasis: "100%", margin: "4px 0" }}>กำลังแก้รายการ{isWaste ? "ของเสีย" : "ย้าย"}วันนี้</p>}
+          {!isWaste && <div className="stto">ย้ายไป {MOVE_TO.map(([k, t]) => (
+            <button key={k} type="button" className={"chip" + (op.to === k ? " on" : "")} onClick={() => setOp({ ...op, to: k })}>{t}</button>))}</div>}
+          <label className="stq">จำนวน<input inputMode="decimal" placeholder="—" value={op.qty} autoFocus
+            onChange={(e) => setOp({ ...op, qty: e.target.value.replace(/[^0-9.]/g, "") })} /><span className="qu">{it.unit}</span></label>
+          <label className="stn">หมายเหตุ<input value={op.note} onChange={(e) => setOp({ ...op, note: e.target.value })} /></label>
+          <div className="sta">
+            {(!op.editId || !isWaste) && <button disabled={busy} onClick={() => save(false)}>{busy ? "กำลังบันทึก…" : op.editId ? "บันทึกที่แก้" : "ย้าย"}</button>}
+            {(!op.editId || isWaste) && <button className="ghost red" disabled={busy} onClick={() => save(true)}>{op.editId ? "บันทึกของเสียที่แก้" : "ของเสีย"}</button>}
+            <button className="ghost" onClick={() => setOp(null)}>ยกเลิก</button>
+          </div>
+          {cost != null && <p className="small muted" style={{ flexBasis: "100%", margin: "2px 0" }}>{isWaste
+            ? <>ของเสีย: ตัดออกจากคลังกลาง ไม่เป็นต้นทุนของร้านไหน · ประมาณ {fmt(cost, 2)} บาท</>
+            : <>ต้นทุนของ{LOC_NAME[op.to]} ประมาณ {fmt(cost, 2)} บาท (ราคาเฉลี่ย {fmt(s.avg_cost, 2)}/{it.unit} ไม่รวม VAT){A(op.qty) > A(s.qty) ? <b className="red"> · เกินที่มี ({fmt(s.qty)})</b> : null}</>}</p>}
+          {err && <p className="red" style={{ flexBasis: "100%", margin: 0 }}>{err}</p>}
+        </div>}
+      </div>);
+  };
 
   return (
     <>
       <div className="card">
-        <h2>{editId ? "แก้การเบิก" : to === "waste" ? "บันทึกของเสียในคลังกลาง" : "เบิกของจากคลังกลาง"}</h2>
-        <div className="row">
-          <label>เบิกไป<select value={to} onChange={(e) => setTo(e.target.value)}>{DRAW_TO.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-          <label style={{ flex: "1 1 200px" }}>สินค้า
-            <select value={itemId} onChange={(e) => setItemId(e.target.value)} style={{ width: "100%" }}>
-              <option value="">— เลือก —</option>
-              {inStock.map(({ it, s }) => <option key={it.id} value={it.id}>{it.name} (เหลือ {fmt(s.qty)} {it.unit})</option>)}
-              {editId && !inStock.some(({ it }) => it.id === itemId) && <option value={itemId}>{data.itemById[itemId]?.name}</option>}
-            </select>
-          </label>
-          <label>จำนวน<Num value={qty} onChange={setQty} w="6em" /></label>
-          <label style={{ flex: "1 1 140px" }}>หมายเหตุ<input value={note} onChange={(e) => setNote(e.target.value)} style={{ width: "100%" }} /></label>
+        <div className="bar"><h2 style={{ margin: 0 }}>สต๊อกคลังกลาง</h2>
+          <span className="muted small" style={{ marginLeft: "auto" }}>{rows.length} รายการ · มูลค่า {fmt(totalVal, 0)} บาท</span></div>
+        <div className="row" style={{ alignItems: "center" }}>
+          <input placeholder="หาของ..." value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: "1 1 200px" }} />
+          <label className="chk"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> แสดงที่หมดแล้ว</label>
         </div>
-        {cur && A(qty) > 0 && <p className="small muted">ต้นทุนประมาณ {fmt(r2(A(qty) * A(cur.avg_cost)), 2)} บาท (ราคาเฉลี่ย {fmt(cur.avg_cost, 2)}/{data.itemById[itemId]?.unit} ไม่รวม VAT) → ต้นทุนของ{LOC_NAME[to]}</p>}
-        {to === "waste" && <p className="small muted">ของเสีย: ตัดออกจากสต๊อกคลังกลาง ไม่เป็นต้นทุนของร้านไหน (เป็นเงินกองกลางที่เสียไป) · ถ้านับแล้วของขาด ใช้ช่องนี้ใส่หมายเหตุ "นับขาด" ได้</p>}
-        {err && <p className="red">{err}</p>}
-        <div className="row">
-          <button disabled={busy} onClick={save}>{busy ? "กำลังบันทึก…" : editId ? "บันทึกที่แก้" : to === "waste" ? "บันทึกของเสีย" : "เบิก"}</button>
-          {editId && <button className="ghost" onClick={() => { setEditId(null); setQty(""); setItemId(""); setNote(""); }}>ยกเลิกแก้</button>}
-        </div>
+        <p className="small muted">แตะชื่อสินค้า → เลือกร้าน ใส่จำนวน → กด "ย้าย" (ร้านนั้นใช้ไป เป็นต้นทุนของร้าน) หรือ "ของเสีย"</p>
+        {editOnly && renderRow(editOnly, data.stockById[editOnly.id])}
+        {!rows.length ? <p className="muted">{qs ? "ไม่พบ" : "ยังไม่มีของในคลังกลาง — ของที่ซื้อแบบ คชจ.ของ คลังกลาง จะมาอยู่ที่นี่"}</p> :
+          cats.map((c) => <div key={c}><div className="sthead">{c || "ไม่มีหมวด"}</div>
+            {rows.filter(({ it }) => (it.category || "") === c).map(({ it, s }) => renderRow(it, s))}</div>)}
       </div>
 
       <div className="card">
-        <h2>เบิก / ของเสีย วันนี้ ({draws.length} รายการ)</h2>
-        {!draws.length ? <p className="muted">ยังไม่มีการเบิก</p> : (
+        <h2>ย้าย / ของเสีย วันนี้ ({draws.length} รายการ)</h2>
+        {!draws.length ? <p className="muted">ยังไม่มีการย้ายของ</p> : (
           <div className="scroll"><table className="grid">
             <thead><tr><th>สินค้า</th><th>จำนวน</th><th>ไป</th><th>ต้นทุน</th><th></th></tr></thead>
             <tbody>{draws.map((m) => {
               const it = data.itemById[m.item_id] || {}, out = m.from_loc === "main";
               return (
-                <tr key={m.id} style={editId === m.id ? { background: "var(--warn)" } : null}>
+                <tr key={m.id} style={op?.editId === m.id ? { background: "var(--warn)" } : null}>
                   <td>{it.name}{m.note ? <div className="small muted">{m.note}</div> : null}</td>
                   <td className="r">{out ? "" : "คืน "}{fmt(m.qty)} {it.unit}</td>
                   <td className="nw">{m.kind === "waste" ? <span className="red">ของเสีย</span> : out ? LOC_NAME[m.to_loc] : "จาก" + (LOC_NAME[m.from_loc] || "ผลิต")}</td>
@@ -758,7 +783,7 @@ function StockTable({ data, all, setAll }) {
   const ym = data.date.slice(0, 7);
   return (
     <div className="card">
-      <div className="bar"><h2 style={{ margin: 0 }}>สต๊อกคลังกลาง และของที่ออกไปแต่ละร้าน</h2>
+      <div className="bar"><h2 style={{ margin: 0 }}>รายละเอียดสต๊อก และของที่ออกไปแต่ละร้านเดือนนี้</h2>
         <label className="chk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> แสดงที่หมดแล้ว</label></div>
       {!rows.length ? <p className="muted">ยังไม่มีของในคลังกลาง</p> : (
         <div className="scroll"><table className="grid">
@@ -897,8 +922,8 @@ function OverviewTab({ data, setTab, setMsg }) {
         <h2>ลงงานวันนี้</h2>
         <div className="row">
           <button onClick={() => setTab("buy")}>ซื้อของ</button>
-          <button onClick={() => setTab("stock")}>เบิกจากคลัง</button>
-          <button onClick={() => { setTab("stock"); setMsg("เลือก \"เบิกไป: ของเสีย (ทิ้ง)\""); }}>ของเสีย</button>
+          <button onClick={() => setTab("stock")}>ย้ายของจากคลัง</button>
+          <button onClick={() => { setTab("stock"); setMsg("แตะชื่อสินค้า แล้วกด \"ของเสีย\""); }}>ของเสีย</button>
           <button className="ghost" onClick={() => setTab("items")}>สินค้า</button>
         </div>
       </div>
@@ -1159,7 +1184,7 @@ function App() {
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(""), 4000); return () => clearTimeout(t); } }, [msg]);
   if (session === undefined) return <p className="muted pad">กำลังโหลด…</p>;
   if (!session) return <Login />;
-  const TABS = [["ov", "ภาพรวม"], ["buy", "ซื้อของ"], ["stock", "คลัง/เบิก"], ["items", "สินค้า"]];
+  const TABS = [["ov", "ภาพรวม"], ["buy", "ซื้อของ"], ["stock", "สต๊อก"], ["items", "สินค้า"]];
   const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
