@@ -979,7 +979,9 @@ function whSplit(entries) {
     const grp = costLines.length ? (CODE_GRP[costLines[0].account_code] || "ops") : null;
     const cash = r2(L.filter((l) => l.account_code === PAY.cash.code).reduce((s, l) => s + A(l.credit) - A(l.debit), 0));
     const bank = r2(L.filter((l) => l.account_code === PAY.transfer.code).reduce((s, l) => s + A(l.credit) - A(l.debit), 0));
-    return { id: e.id, no: e.voucher_no, title: e.description, type: e.source_type, cost, grp, cash, bank };
+    const codes = {};   // ต้นทุนแยกตามรหัสบัญชี → ใช้โชว์ในหัวหมวดของหน้าร้าน (27 พ.ย. 2569)
+    for (const l of costLines) codes[l.account_code] = r2((codes[l.account_code] || 0) + A(l.debit) - A(l.credit));
+    return { id: e.id, no: e.voucher_no, title: e.description, type: e.source_type, cost, grp, cash, bank, codes };
   });
 }
 
@@ -2813,6 +2815,9 @@ function LaabEntryApp({ userEmail }) {
 
   const inCat = (c) => catalog.filter((it) => it.cat === c && (!it.off || editCat === c));
   const catTotal = (c) => (c === "wage" ? wageToday : inCat(c).reduce((s, it) => s + A(R(it.id).amt), 0));
+  /* ยอดจากหน้าซื้อของ/คลังกลางในหมวดนี้ (ดูอย่างเดียว · นับในรายจ่ายรวมผ่าน whCost อยู่แล้ว ไม่บวกซ้ำ) */
+  const whInCat = (c) => whToday.filter((w) => A(w.codes?.[CATS[c].code]) !== 0);
+  const whCatTotal = (c) => r2(whInCat(c).reduce((s, w) => s + A(w.codes[CATS[c].code]), 0));
   const catCount = (c) => (c === "wage"
     ? Object.keys(att).length
     : inCat(c).filter((it) => A(R(it.id).qty) !== 0 || A(R(it.id).amt) !== 0).length);
@@ -3343,6 +3348,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .cname{font-size:14px;font-weight:700}
 .ccode{font-family:var(--font);font-size:13px;color:var(--soft)}
 .cmeta{font-size:13px;color:var(--soft)}
+.whtag{font-size:12.5px;color:#6b3fa0;background:#f1ecf8;border-radius:10px;padding:1px 8px;margin-left:6px;white-space:nowrap}
+.whrow{display:flex;justify-content:space-between;gap:12px;flex-basis:100%;width:100%;padding:8px 4px;border-bottom:1px dashed var(--line);color:#4a3a6a;font-size:15px}
+.whrow em{font-style:normal;font-size:12.5px;color:var(--soft)}
+.whrow .v{font-variant-numeric:tabular-nums;font-weight:600}
 .ctot{font-family:var(--font);font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;flex:0 0 auto}
 .ctot.zero{color:var(--soft);font-weight:400}
 .cbody{padding:0 0 10px 12px}
@@ -3799,7 +3808,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
               <div key={b.key}>
                 <div className="boxhead"><b>{b.title}</b><em>{b.hint}</em></div>
                 {catsIn(b.key).map((c) => {
-                  const cnt = catCount(c), tot = catTotal(c);
+                  const cnt = catCount(c), whT = c === "wage" ? 0 : whCatTotal(c), tot = r2(catTotal(c) + whT);
                   return (
                     <div className="cgroup" key={c}>
                       <button className="chead" onClick={() => toggle(c)} aria-expanded={isOpen(c)}>
@@ -3808,6 +3817,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                           <span className="cname">{CATS[c].label}</span>
                           <span className="ccode">{CATS[c].code}</span>
                           <span className="cmeta">{cnt > 0 ? `${cnt} รายการ` : `${inCat(c).length} รายการในหมวด`}</span>
+                          {whT !== 0 && <span className="whtag">คลัง {money(whT)}</span>}
                         </span>
                         <span className={`ctot${tot ? "" : " zero"}`}>{tot ? money(tot) : "—"}</span>
                       </button>
@@ -3876,6 +3886,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
                             </div>
                           ) : (
                             <span className="linkrow">
+                              {whInCat(c).map((w) => (
+                                <span className="whrow" key={w.id}>
+                                  <span>{w.title.replace(/^เบิกจากคลังกลาง\s*/, "")} <em>· จากคลังกลาง (แก้ที่หน้าคลังกลาง)</em></span>
+                                  <span className="v">{money(w.codes[CATS[c].code])}</span>
+                                </span>))}
                               <button className="newlink" onClick={() => setNewFor(c)}>+ เพิ่มของใหม่ในหมวดนี้</button>
                               <button className="newlink" onClick={() => setEditCat(editCat === c ? null : c)}>
                                 {editCat === c ? "เลิกแก้รายการ" : "แก้รายการของในหมวดนี้"}
