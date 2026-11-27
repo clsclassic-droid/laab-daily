@@ -82,7 +82,7 @@ async function fetchLocStock(date) {
 }
 
 async function loadAll(date) {
-  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock, lastPrices, groups] = await Promise.all([
+  const [items, cats, purchases, monthMoves, stock, credits, payments, bills, billLines, locStock, lastPrices, groups, stores] = await Promise.all([
     fetchAll("inv_items", "*"),
     fetchAll("inv_categories", "*", (q) => q, "name"),
     fetchAll("inv_purchases", "*", (q) => q.eq("purchase_date", date)),
@@ -96,6 +96,7 @@ async function loadAll(date) {
     fetchLocStock(date),
     fetchLastPrices(date),
     fetchAll("inv_cat_groups", "*", (q) => q, "sort_order"),   // หัวข้อ (19 พ.ย.)
+    fetchAll("stores", "id,name", (q) => q, "name"),            // รายชื่อร้านที่ซื้อ ชุดเดียวกับหน้าร้านลาบ (27 พ.ย.)
   ]);
   const billSum = {};
   for (const l of billLines) billSum[l.bill_id] = r2((billSum[l.bill_id] || 0) + A(l.amount));
@@ -105,7 +106,9 @@ async function loadAll(date) {
   for (const y of payments) paidBy[y.purchase_id] = r2((paidBy[y.purchase_id] || 0) + A(y.amount));
   items.sort((a, b) => (a.category || "").localeCompare(b.category || "", "th") || a.name.localeCompare(b.name, "th"));
   const bySort = (a, c) => (a.sort_order ?? 0) - (c.sort_order ?? 0) || a.name.localeCompare(c.name, "th");
-  return { date, items, cats: cats.filter((c) => c.is_active).sort(bySort), allCats: [...cats].sort(bySort), groups: [...groups].sort(bySort), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
+  const vendors = [...new Set([...stores.map((s) => s.name), ...items.map((i) => i.def_vendor_name), ...purchases.map((p) => p.vendor_name), ...credits.map((p) => p.vendor_name)]
+    .filter((v) => v && v !== "—"))].sort((a, b) => a.localeCompare(b, "th"));
+  return { date, vendors, items, cats: cats.filter((c) => c.is_active).sort(bySort), allCats: [...cats].sort(bySort), groups: [...groups].sort(bySort), purchases, moves, monthMoves, stock, credits, payments, paidBy, bills, billSum, locStock,
     lastBy: Object.fromEntries(lastPrices.map((x) => [x.item_id, x])),
     itemById: Object.fromEntries(items.map((i) => [i.id, i])), stockById: Object.fromEntries(stock.map((s) => [s.item_id, s])) };
 }
@@ -156,8 +159,8 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า
   const val = (it) => {
     const p = single(it.id), d = draft[it.id] || {};
-    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice }
-      : { qty: "", price: "", loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice };
+    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
+      : { qty: "", price: "", loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice, vendor: it.def_vendor_name || "" };
     return { ...base, ...d };
   };
   const last = (id) => data.lastBy[id];
@@ -167,14 +170,14 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   // บันทึกแถว (ออกจากช่อง/เปลี่ยนตัวเลือก) — จำนวนว่าง = ลบรายการวันนี้
   const commit = async (it, patch = {}) => {
     const v = { ...val(it), ...patch }, p = single(it.id), qty = A(v.qty), price = priceOf(it, v);
-    if (!p && !(qty > 0)) { setDraft((x) => { const n = { ...x }; if (patch.loc || patch.paid || patch.inv !== undefined) n[it.id] = { ...n[it.id], ...patch }; else delete n[it.id]; return n; }); return; }
+    if (!p && !(qty > 0)) { setDraft((x) => { const n = { ...x }; if (patch.loc || patch.paid || patch.inv !== undefined || patch.vendor !== undefined) n[it.id] = { ...n[it.id], ...patch }; else delete n[it.id]; return n; }); return; }
     if (qty > 0 && price == null) return;   // ยังไม่มีราคา — รอใส่ราคา (แถวสีส้ม)
     setBusy((b) => ({ ...b, [it.id]: true })); setErr("");
     try {
       if (!(qty > 0)) chk(await supabase.from("inv_purchases").delete().eq("id", p.id));
       else {
         const row = { qty, unit_price: price, amount: r2(qty * price), for_loc: v.loc, paid_from: v.paid,
-          paid_entity: entFor(v.loc, v.paid, v.ent), has_tax_invoice: !!v.inv };
+          paid_entity: entFor(v.loc, v.paid, v.ent), has_tax_invoice: !!v.inv, vendor_name: (v.vendor || "").trim() || null };
         if (p) chk(await supabase.from("inv_purchases").update({ ...row, updated_at: new Date().toISOString() }).eq("id", p.id));
         else chk(await supabase.from("inv_purchases").insert({ ...row, purchase_date: data.date, item_id: it.id }));
       }
@@ -224,7 +227,8 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
     const pend = qty > 0 && price == null;
     const defLoc = it.def_for_loc || "main", defPaid = it.def_paid_from || "pool";
     const chg = (a, b) => (!editing && a !== b ? " chg" : "");
-    const changed = !editing && (v.loc !== defLoc || v.paid !== defPaid || !!v.inv !== !!it.def_tax_invoice);   // วันนี้ต่างจากค่าปกติ → จุดเหลือง
+    const defVend = it.def_vendor_name || "";
+    const changed = !editing && (v.loc !== defLoc || v.paid !== defPaid || !!v.inv !== !!it.def_tax_invoice || (v.vendor || "").trim() !== defVend);   // วันนี้ต่างจากค่าปกติ → จุดเหลือง
     const showOpt = editing || !!ex[it.id];   // ค่าปกติซ่อนไว้ — แตะชื่อเพื่อกาง
     const onSel = (k, x) => (editing ? saveDef(it, { loc: "def_for_loc", paid: "def_paid_from" }[k], x) : (setD(it.id, k, x), commit(it, { [k]: x })));
     return (
@@ -238,6 +242,12 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
           <input type="checkbox" disabled={lock} checked={editing ? !!it.def_tax_invoice : !!v.inv}
             onChange={(e) => (editing ? saveDef(it, "def_tax_invoice", e.target.checked) : (setD(it.id, "inv", e.target.checked), commit(it, { inv: e.target.checked })))} />VAT</label>
         <div className="qo">
+          <span className="qp"><span className="ql">ซื้อร้าน</span>
+            <input className={"qs qvend" + chg((v.vendor || "").trim(), defVend)} list="wh-vendors" disabled={lock} placeholder="—"
+              value={editing ? (draft[it.id]?.dv ?? defVend) : v.vendor || ""}
+              onChange={(e) => setD(it.id, editing ? "dv" : "vendor", e.target.value)}
+              onBlur={(e) => { const x = e.target.value.trim(); if (editing) { if (x !== defVend) saveDef(it, "def_vendor_name", x || null); setDraft((o) => { const n = { ...o }; delete n[it.id]; return n; }); }
+                else if (draft[it.id] && draft[it.id].vendor !== undefined) commit(it, { vendor: x }); }} /></span>
           <span className="qp"><span className="ql">คชจ.ของ</span>
             <select className={"qs" + chg(v.loc, defLoc)} disabled={lock} value={editing ? defLoc : v.loc} onChange={(e) => onSel("loc", e.target.value)}>
               {QLOC.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></span>
@@ -264,6 +274,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
 
   return (
     <div className="card">
+      <datalist id="wh-vendors">{(data.vendors || []).map((x) => <option key={x} value={x} />)}</datalist>
       <div className="bar"><h2 style={{ margin: 0 }}>ซื้อของวันนี้</h2><span className="muted small" style={{ marginLeft: "auto" }}>{data.purchases.length} รายการ</span></div>
       {diffs.length > 0 && <p className="qwarn">⚠ ราคาต่างจากครั้งก่อนเกิน 10% · <span className="nw">{diffs.length} รายการ</span></p>}
       <div className="qtools">
