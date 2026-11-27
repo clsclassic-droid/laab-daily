@@ -159,24 +159,27 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า
   const val = (it) => {
     const p = single(it.id), d = draft[it.id] || {};
-    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
-      : { qty: "", price: "", loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice, vendor: it.def_vendor_name || "" };
+    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), amt: String(p.amount ?? ""), am: Math.abs(A(p.qty) * A(p.unit_price) - A(p.amount)) > 0.005, loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
+      : { qty: "", price: "", amt: "", am: false, loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice, vendor: it.def_vendor_name || "" };
     return { ...base, ...d };
   };
   const last = (id) => data.lastBy[id];
-  const priceOf = (it, v) => (v.price !== "" ? A(v.price) : last(it.id) ? A(last(it.id).unit_price) : null);
+  // กรอกยอดรวมเอง (v.am) → ราคาต่อหน่วย = รวม ÷ จำนวน (27 พ.ย. 2569 เหมือนหน้าร้านลาบ)
+  const priceOf = (it, v) => (v.am ? (A(v.amt) > 0 && A(v.qty) > 0 ? Math.round((A(v.amt) / A(v.qty)) * 10000) / 10000 : null)
+    : v.price !== "" ? A(v.price) : last(it.id) ? A(last(it.id).unit_price) : null);
   const setD = (id, k, v) => setDraft((x) => ({ ...x, [id]: { ...x[id], [k]: v } }));
 
   // บันทึกแถว (ออกจากช่อง/เปลี่ยนตัวเลือก) — จำนวนว่าง = ลบรายการวันนี้
   const commit = async (it, patch = {}) => {
     const v = { ...val(it), ...patch }, p = single(it.id), qty = A(v.qty), price = priceOf(it, v);
+    if (v.am && A(v.amt) > 0 && !(qty > 0)) { setErr(`${it.name}: ใส่จำนวนก่อน แล้วระบบจะคิดราคาต่อหน่วยให้`); return; }
     if (!p && !(qty > 0)) { setDraft((x) => { const n = { ...x }; if (patch.loc || patch.paid || patch.inv !== undefined || patch.vendor !== undefined) n[it.id] = { ...n[it.id], ...patch }; else delete n[it.id]; return n; }); return; }
     if (qty > 0 && price == null) return;   // ยังไม่มีราคา — รอใส่ราคา (แถวสีส้ม)
     setBusy((b) => ({ ...b, [it.id]: true })); setErr("");
     try {
       if (!(qty > 0)) chk(await supabase.from("inv_purchases").delete().eq("id", p.id));
       else {
-        const row = { qty, unit_price: price, amount: r2(qty * price), for_loc: v.loc, paid_from: v.paid,
+        const row = { qty, unit_price: price, amount: v.am ? r2(A(v.amt)) : r2(qty * price), for_loc: v.loc, paid_from: v.paid,
           paid_entity: entFor(v.loc, v.paid, v.ent), has_tax_invoice: !!v.inv, vendor_name: (v.vendor || "").trim() || null };
         if (p) chk(await supabase.from("inv_purchases").update({ ...row, updated_at: new Date().toISOString() }).eq("id", p.id));
         else chk(await supabase.from("inv_purchases").insert({ ...row, purchase_date: data.date, item_id: it.id }));
@@ -222,7 +225,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
 
   const renderRow = (it) => {
     const v = val(it), l = last(it.id), lock = locked(it.id), editing = editCat === (it.category || "");
-    const price = priceOf(it, v), qty = A(v.qty), tot = qty > 0 && price != null ? r2(qty * price) : null;
+    const price = priceOf(it, v), qty = A(v.qty), tot = v.am ? (A(v.amt) > 0 ? r2(A(v.amt)) : null) : qty > 0 && price != null ? r2(qty * price) : null;
     const off = qty > 0 && l && A(l.unit_price) > 0 && price != null && Math.abs(price - A(l.unit_price)) / A(l.unit_price) > 0.1;
     const pend = qty > 0 && price == null;
     const defLoc = it.def_for_loc || "main", defPaid = it.def_paid_from || "pool";
@@ -271,9 +274,12 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
             <input className="qx" inputMode="decimal" placeholder="—" value={v.qty}
               onChange={(e) => setD(it.id, "qty", e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => draft[it.id] && commit(it)} />
             <span className="qu">{it.unit}</span>×
-            <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(l.unit_price, 2) : "ราคา"} value={v.price}
-              onChange={(e) => setD(it.id, "price", e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => draft[it.id] && commit(it)} />=
-            <b className="qt">{tot != null ? fmt(tot, 2) : "—"}</b>
+            <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(l.unit_price, 2) : "ราคา"}
+              value={v.am ? (price != null ? String(Math.round(price * 100) / 100) : "") : v.price}
+              onChange={(e) => setDraft((x) => ({ ...x, [it.id]: { ...x[it.id], price: e.target.value.replace(/[^0-9.]/g, ""), am: false } }))} onBlur={() => draft[it.id] && commit(it)} />=
+            <input className="qx qtot" inputMode="decimal" placeholder="รวม" aria-label={`ยอดรวม ${it.name}`}
+              value={v.am ? v.amt : tot != null ? String(tot) : ""}
+              onChange={(e) => setDraft((x) => ({ ...x, [it.id]: { ...x[it.id], amt: e.target.value.replace(/[^0-9.]/g, ""), am: true } }))} onBlur={() => draft[it.id] && commit(it)} />
           </div>)}
       </div>);
   };
