@@ -416,7 +416,8 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
     if (!(total >= 0)) return setErr("ใส่ราคา");
     if (!known && !f.cat) return setErr("สินค้าใหม่ ต้องเลือกหมวด");
     if (!known && !f.unit.trim()) return setErr("สินค้าใหม่ ต้องใส่หน่วย");
-    if (!known && (f.buyUnit.trim() || f.pack) && !packOK) return setErr("หน่วยซื้อ: ใส่ทั้งชื่อหน่วยซื้อ และจำนวนต่อหน่วยซื้อ (มากกว่า 1)");
+    if (!known && (f.buyUnit.trim() || f.pack) && !packOK) return setErr("แพ็ค/ลัง: ใส่ทั้งชื่อหน่วยซื้อ และจำนวนข้างใน (มากกว่า 1)");
+    if (!known && packOK && pkUnit === f.unit.trim()) return setErr("หน่วยที่ร้านเบิก กับหน่วยซื้อ ต้องไม่ใช่คำเดียวกัน (เช่น ขวด กับ แพ็ค)");
     if (bill && total > left + 0.004) return setErr(`เกินยอดบิล — บิลนี้เหลือให้ใส่อีก ${fmt(left, 2)} บาท`);
     setBusy(true);
     try {
@@ -490,14 +491,16 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
             <input list="items" value={f.name} onChange={(e) => onName(e.target.value)} placeholder="พิมพ์ชื่อ (ชื่อใหม่ = เพิ่มสินค้าใหม่)" style={{ width: "100%" }} />
           </label>
           <datalist id="items">{data.items.filter((i) => i.is_active && (!f.cat || known || i.category === f.cat)).map((i) => <option key={i.id} value={i.name} />)}</datalist>
-          <label>หน่วย<input value={f.unit} disabled={!!known} onChange={(e) => set("unit", e.target.value)} style={{ width: "6em" }} /></label>
+          <label>{known ? "หน่วย" : "หน่วยที่ร้านเบิก (เช่น ขวด, ถุง)"}<input value={f.unit} disabled={!!known} onChange={(e) => set("unit", e.target.value)} style={{ width: "6em" }} /></label>
         </div>
         {f.name.trim() && !known && <p className="warn small">สินค้าใหม่ — จะเพิ่มเข้ารายการสินค้าตอนบันทึก
           <label className="chk" style={{ margin: "6px 0 0" }}><input type="checkbox" checked={f.tier2} onChange={(e) => set("tier2", e.target.checked)} /> นับสิ้นเดือน (ของเล็ก ไม่ต้องเบิกทุกครั้ง)</label>
-          <span className="row" style={{ margin: "8px 0 0", alignItems: "center", gap: 6 }}>ซื้อมาเป็นแพ็ค/ลัง? (ไม่ใช่ เว้นว่าง) · ซื้อเป็น
-            <input value={f.buyUnit} placeholder="แพ็ค" onChange={(e) => set("buyUnit", e.target.value)} style={{ width: "5em" }} /> ละ
-            <Num value={f.pack} onChange={(v) => set("pack", v)} ph="12" w="4em" /> {f.unit.trim() || "หน่วย"}</span>
-          <span className="small muted" style={{ display: "block" }}>หน่วย = หน่วยเล็กที่เก็บในคลังและร้านเบิก (เช่น ขวด)</span></p>}
+          <span style={{ display: "block", margin: "10px 0 2px", fontWeight: 600 }}>ซื้อมาเป็นแพ็ค/ลัง/หิ้ว? <span className="small muted" style={{ fontWeight: 400 }}>(ถ้าไม่ใช่ เว้นว่างไว้)</span></span>
+          <span className="row" style={{ margin: 0, alignItems: "center", gap: 6 }}>1
+            <input value={f.buyUnit} placeholder="แพ็ค" aria-label="หน่วยซื้อ" onChange={(e) => set("buyUnit", e.target.value)} style={{ width: "5em" }} /> มี
+            <Num value={f.pack} onChange={(v) => set("pack", v)} ph="12" w="4em" /> <b>{f.unit.trim() || "(ใส่หน่วยที่ร้านเบิกด้านบนก่อน)"}</b></span>
+          {f.buyUnit.trim() && f.buyUnit.trim() === f.unit.trim() && <span className="red small" style={{ display: "block", marginTop: 4 }}>
+            หน่วยที่ร้านเบิก กับหน่วยซื้อ เป็นคำเดียวกัน — ช่องบนสุดควรเป็นหน่วยเล็ก เช่น ขวด หรือ ถุง</span>}</p>}
         {packOK && <div className="row" style={{ alignItems: "center", gap: 6 }}>กรอกเป็น
           <button type="button" className={usePack ? "sm" : "ghost sm"} onClick={() => set("byPack", true)}>{pkUnit}</button>
           <button type="button" className={usePack ? "ghost sm" : "sm"} onClick={() => set("byPack", false)}>{unitTxt}</button>
