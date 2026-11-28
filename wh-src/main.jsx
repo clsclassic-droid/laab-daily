@@ -368,7 +368,8 @@ function BuySummary({ data }) {
 
 /* ── เมนูซื้อของ ── */
 const EMPTY = { id: null, name: "", cat: "", unit: "", tier2: false, qty: "", price: "", total: "", last: "total",
-  forLoc: "main", paidFrom: "pool", paidEnt: "LS", inv: false, vendor: "", note: "", paidNow: "", nowFrom: "pool", nowEnt: "LS", billId: null, origAmt: 0 };
+  forLoc: "main", paidFrom: "pool", paidEnt: "LS", inv: false, vendor: "", note: "", paidNow: "", nowFrom: "pool", nowEnt: "LS", billId: null, origAmt: 0,
+  buyUnit: "", pack: "", byPack: true };   // หน่วยซื้อ (28 พ.ย.): สินค้าใหม่ตั้ง buyUnit/pack ได้ · byPack = กรอกจำนวน/ราคาเป็นหน่วยซื้อ
 const billLeft = (data, b) => r2(A(b.amount) - (data.billSum[b.id] || 0));
 const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 
@@ -392,12 +393,18 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
   // พิมพ์ชื่อสินค้าที่มีอยู่ → ใส่หมวด/หน่วยให้
   const onName = (v) => {
     const it = data.items.find((i) => i.name === v.trim());
-    setF((x) => ({ ...x, name: v, ...(it ? { cat: it.category || "", unit: it.unit || "", tier2: it.tier === 2 } : {}) }));
+    setF((x) => ({ ...x, name: v, ...(it ? { cat: it.category || "", unit: it.unit || "", tier2: it.tier === 2, byPack: true } : {}) }));
   };
-  // ใส่ราคาต่อหน่วยหรือราคารวมก็ได้ อีกช่องคำนวณให้
+  // หน่วยซื้อ: สินค้าเดิมใช้ค่าที่ตั้งไว้ · สินค้าใหม่ใช้ช่องในฟอร์ม · เก็บลงคลังเป็นหน่วยเล็กเสมอ
+  const n4 = (x) => Math.round(x * 10000) / 10000;
+  const pkUnit = known ? known.buy_unit || "" : f.buyUnit.trim(), pkQty = known ? A(known.pack_qty) : A(f.pack);
+  const packOK = !!pkUnit && pkQty > 1, usePack = packOK && f.byPack, fct = usePack ? pkQty : 1;
+  const unitTxt = (known ? known.unit : f.unit.trim()) || "หน่วย", inUnit = usePack ? pkUnit : unitTxt;
+  // ใส่ราคาต่อหน่วยหรือราคารวมก็ได้ อีกช่องคำนวณให้ (จำนวน/ราคา เป็นหน่วยที่กรอก)
   const qty = A(f.qty);
   const total = f.last === "price" ? r2(qty * A(f.price)) : A(f.total);
   const price = f.last === "price" ? A(f.price) : qty ? r2(A(f.total) / qty) : 0;
+  const baseQty = n4(qty * fct), basePrice = f.last === "price" ? n4(A(f.price) / fct) : baseQty ? n4(A(f.total) / baseQty) : 0;
   const vat = f.inv ? r2(total * 7 / 107) : 0;
   const forEnt = LOC_ENT[f.forLoc];
 
@@ -409,15 +416,17 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
     if (!(total >= 0)) return setErr("ใส่ราคา");
     if (!known && !f.cat) return setErr("สินค้าใหม่ ต้องเลือกหมวด");
     if (!known && !f.unit.trim()) return setErr("สินค้าใหม่ ต้องใส่หน่วย");
+    if (!known && (f.buyUnit.trim() || f.pack) && !packOK) return setErr("หน่วยซื้อ: ใส่ทั้งชื่อหน่วยซื้อ และจำนวนต่อหน่วยซื้อ (มากกว่า 1)");
     if (bill && total > left + 0.004) return setErr(`เกินยอดบิล — บิลนี้เหลือให้ใส่อีก ${fmt(left, 2)} บาท`);
     setBusy(true);
     try {
       let itemId = known?.id;
       if (!itemId) {
-        itemId = chk(await supabase.from("inv_items").insert({ name, unit: f.unit.trim(), category: f.cat, tier: f.tier2 ? 2 : 1 })
+        itemId = chk(await supabase.from("inv_items").insert({ name, unit: f.unit.trim(), category: f.cat, tier: f.tier2 ? 2 : 1,
+          buy_unit: packOK ? pkUnit : null, pack_qty: packOK ? pkQty : null })
           .select("id").single()).id;
       }
-      const row = { purchase_date: bill ? bill.bill_date : data.date, item_id: itemId, qty, unit_price: price, amount: total, has_tax_invoice: f.inv,
+      const row = { purchase_date: bill ? bill.bill_date : data.date, item_id: itemId, qty: baseQty, unit_price: basePrice, amount: total, has_tax_invoice: f.inv,
         for_loc: f.forLoc, paid_from: f.paidFrom, paid_entity: noEnt(f.paidFrom) ? null : f.paidEnt,
         vendor_name: f.vendor.trim() || null, note: f.note.trim() || null, bill_id: f.billId || null };
       const now = f.paidFrom === "credit" && !f.id && !bill ? A(f.paidNow) : 0;
@@ -443,7 +452,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
     setF({ id: p.id, name: it.name || "", cat: it.category || "", unit: it.unit || "", tier2: it.tier === 2, qty: String(p.qty),
       price: String(p.unit_price ?? ""), total: String(p.amount), last: "total", forLoc: p.for_loc, paidFrom: p.paid_from,
       paidEnt: p.paid_entity || "LS", inv: p.has_tax_invoice, vendor: p.vendor_name || "", note: p.note || "", paidNow: "", nowFrom: "pool", nowEnt: "LS",
-      billId: p.bill_id || null, origAmt: p.bill_id ? A(p.amount) : 0 });
+      billId: p.bill_id || null, origAmt: p.bill_id ? A(p.amount) : 0, buyUnit: "", pack: "", byPack: false });   // แก้รายการเดิม = กรอกเป็นหน่วยเล็ก
     showForm();
   };
   const del = async (p) => {
@@ -484,10 +493,18 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
           <label>หน่วย<input value={f.unit} disabled={!!known} onChange={(e) => set("unit", e.target.value)} style={{ width: "6em" }} /></label>
         </div>
         {f.name.trim() && !known && <p className="warn small">สินค้าใหม่ — จะเพิ่มเข้ารายการสินค้าตอนบันทึก
-          <label className="chk" style={{ margin: "6px 0 0" }}><input type="checkbox" checked={f.tier2} onChange={(e) => set("tier2", e.target.checked)} /> นับสิ้นเดือน (ของเล็ก ไม่ต้องเบิกทุกครั้ง)</label></p>}
+          <label className="chk" style={{ margin: "6px 0 0" }}><input type="checkbox" checked={f.tier2} onChange={(e) => set("tier2", e.target.checked)} /> นับสิ้นเดือน (ของเล็ก ไม่ต้องเบิกทุกครั้ง)</label>
+          <span className="row" style={{ margin: "8px 0 0", alignItems: "center", gap: 6 }}>ซื้อมาเป็นแพ็ค/ลัง? (ไม่ใช่ เว้นว่าง) · ซื้อเป็น
+            <input value={f.buyUnit} placeholder="แพ็ค" onChange={(e) => set("buyUnit", e.target.value)} style={{ width: "5em" }} /> ละ
+            <Num value={f.pack} onChange={(v) => set("pack", v)} ph="12" w="4em" /> {f.unit.trim() || "หน่วย"}</span>
+          <span className="small muted" style={{ display: "block" }}>หน่วย = หน่วยเล็กที่เก็บในคลังและร้านเบิก (เช่น ขวด)</span></p>}
+        {packOK && <div className="row" style={{ alignItems: "center", gap: 6 }}>กรอกเป็น
+          <button type="button" className={usePack ? "sm" : "ghost sm"} onClick={() => set("byPack", true)}>{pkUnit}</button>
+          <button type="button" className={usePack ? "ghost sm" : "sm"} onClick={() => set("byPack", false)}>{unitTxt}</button>
+          <span className="small muted">1 {pkUnit} = {fmt(pkQty)} {unitTxt}</span></div>}
         <div className="row">
-          <label>จำนวน<Num value={f.qty} onChange={(v) => set("qty", v)} w="6em" /></label>
-          <label>ราคา/หน่วย<Num value={f.last === "price" ? f.price : price ? String(price) : ""} onChange={(v) => setF((x) => ({ ...x, price: v, last: "price" }))} /></label>
+          <label>จำนวน ({inUnit})<Num value={f.qty} onChange={(v) => set("qty", v)} w="6em" /></label>
+          <label>ราคา/{inUnit}<Num value={f.last === "price" ? f.price : price ? String(price) : ""} onChange={(v) => setF((x) => ({ ...x, price: v, last: "price" }))} /></label>
           <label>ราคารวม<Num value={f.last === "total" ? f.total : total ? String(total) : ""} onChange={(v) => setF((x) => ({ ...x, total: v, last: "total" }))} /></label>
         </div>
         <div className="row">
@@ -514,6 +531,7 @@ function BuyTab({ data, reload, setMsg, billId, setBillId, setDate }) {
         </div>
         <p className="small muted">
           {total ? <>รวม <b>{fmt(total, 2)}</b> บาท{vat ? <> · VAT ซื้อ {fmt(vat, 2)}</> : null} · </> : null}
+          {usePack && qty > 0 ? <>เข้าคลัง <b>{fmt(baseQty)} {unitTxt}</b>{basePrice ? ` (${fmt(basePrice, 2)}/${unitTxt})` : ""} · </> : null}
           {f.forLoc === "main" ? "เข้าสต๊อกคลังกลาง แล้วร้านกดเบิก" : `เป็นต้นทุนของ${LOC_NAME[f.forLoc]}ทันที`}
         </p>
         {err && <p className="red">{err}</p>}
