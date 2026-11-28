@@ -40,6 +40,7 @@
     <div class="card"><table><tbody id="list"></tbody></table></div>
   </div>
 </main>
-<script src="app.js"></script>
+<!-- 28 พ.ย. 2569: โหลด app.js ใหม่ทุกครั้ง (กัน iPad/Chrome ใช้ไฟล์เก่าหลังเผยแพร่) -->
+<script>document.write('<script src="app.js?v=' + Date.now() + '"><\/script>');</script>
 </body>
 </html>
