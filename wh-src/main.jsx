@@ -172,7 +172,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า (จำนวน/ราคา แปลงเป็นหน่วยที่กรอก)
   const val = (it) => {
     const p = single(it.id), d = draft[it.id] || {}, f = fac(it);
-    const base = p ? { qty: String(n4(A(p.qty) / f)), price: p.unit_price == null ? "" : String(n4(A(p.unit_price) * f)), amt: String(p.amount ?? ""), am: Math.abs(A(p.qty) * A(p.unit_price) - A(p.amount)) > 0.005, loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
+    const base = p ? { qty: String(n4(A(p.qty) / f)), price: p.unit_price == null ? "" : String(f > 1 ? r2(A(p.unit_price) * f) : n4(A(p.unit_price))), amt: String(p.amount ?? ""), am: Math.abs(A(p.qty) * A(p.unit_price) - A(p.amount)) > 0.005, loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
       : { qty: "", price: "", amt: "", am: false, loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice, vendor: it.def_vendor_name || "" };
     return { ...base, ...d };
   };
@@ -261,7 +261,9 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
                 saveDef(it, "name", x).then(drop); }} />
             : <b>{it.name}</b>}{changed && <span className="qdot" title="ต่างจากค่าปกติ">●</span>}
           <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(lp, 2)}/{unitOf(it)}</> : "ยังไม่เคยซื้อ"}
-            {hasPack(it) && <> · 1 {it.buy_unit} = {fmt(it.pack_qty)} {it.unit}{f > 1 && qty > 0 ? <> · {fmt(qty)} {it.buy_unit} = {fmt(n4(qty * f))} {it.unit}{price != null ? ` (${fmt(price / f, 2)}/${it.unit})` : ""}</> : null}</>}</small>
+            {hasPack(it) && (f > 1 && qty > 0
+              ? <> · {fmt(qty)} {it.buy_unit} = {fmt(n4(qty * f))} {it.unit}{price != null ? ` (${fmt(price / f, 2)}/${it.unit})` : ""}</>
+              : <> · 1 {it.buy_unit} = {fmt(it.pack_qty)} {it.unit}</>)}</small>
           {!editing && <span className="qmore">{showOpt ? "▴" : "⋯"}</span>}</div>
         {showOpt && <div className="qopt">
         <label className={"qv" + ((editing ? it.def_tax_invoice : v.inv) ? " on" : "")}>
@@ -299,7 +301,7 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
               ? <button type="button" className="qu sw" title={`แตะเพื่อสลับ ${it.buy_unit}/${it.unit}`}
                   onClick={() => { setUm((m) => ({ ...m, [it.id]: !packMode(it) })); setDraft((x) => { const n = { ...x }; if (n[it.id]) { const { qty: _q, price: _p, amt: _a, am: _m, ...r } = n[it.id]; n[it.id] = r; } return n; }); }}>{unitOf(it)}</button>
               : <span className="qu">{it.unit}</span>}×
-            <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(l.unit_price, 2) : "ราคา"}
+            <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(lp, 2) : "ราคา"}
               value={v.am ? (price != null ? String(Math.round(price * 100) / 100) : "") : v.price}
               onChange={(e) => setDraft((x) => ({ ...x, [it.id]: { ...x[it.id], price: e.target.value.replace(/[^0-9.]/g, ""), am: false } }))} onBlur={() => draft[it.id] && commit(it)} />=
             <input className="qx qtot" inputMode="decimal" placeholder="รวม" aria-label={`ยอดรวม ${it.name}`}
