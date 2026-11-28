@@ -151,22 +151,35 @@ const entFor = (loc, paid, ent) => (noEnt(paid) ? null : LOC_ENT[loc] || ent || 
 function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   const [draft, setDraft] = useState({}), [open, setOpen] = useState({}), [editCat, setEditCat] = useState(""), [q, setQ] = useState(""), [ex, setEx] = useState({});
   const [busy, setBusy] = useState({}), [err, setErr] = useState("");
+  const [um, setUm] = useState({});   // item_id → true = กรอกเป็นหน่วยซื้อ (ลัง/แพ็ค/หิ้ว) · false = หน่วยเล็ก
   const items = data.items.filter((i) => i.is_active && !i.is_produced);
   const today = {};   // item_id → รายการวันนี้
   for (const p of data.purchases) (today[p.item_id] = today[p.item_id] || []).push(p);
   const single = (id) => { const l = today[id] || []; return l.length === 1 && !l[0].bill_id ? l[0] : null; };
   const locked = (id) => { const l = today[id] || []; return l.length > 1 || (l.length === 1 && !!l[0].bill_id); };
-  // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า
+  /* หน่วยซื้อ (28 พ.ย. 2569): สินค้าที่ตั้ง buy_unit + pack_qty กรอกเป็นลัง/แพ็ค/หิ้วได้ ระบบเก็บเป็นหน่วยเล็กเสมอ
+     f = ตัวคูณของแถวนั้น (หน่วยซื้อ = pack_qty, หน่วยเล็ก = 1) · ค่าเริ่ม = หน่วยซื้อ เว้นแต่รายการวันนี้หารไม่ลงตัว */
+  const hasPack = (it) => !!(it.buy_unit && A(it.pack_qty) > 1);
+  const packMode = (it) => {
+    if (!hasPack(it)) return false;
+    if (um[it.id] !== undefined) return um[it.id];
+    const p = single(it.id);
+    return p ? Math.abs(A(p.qty) / A(it.pack_qty) - Math.round(A(p.qty) / A(it.pack_qty))) < 1e-9 : true;
+  };
+  const fac = (it) => (packMode(it) ? A(it.pack_qty) : 1);
+  const unitOf = (it) => (packMode(it) ? it.buy_unit : it.unit);
+  const n4 = (x) => Math.round(x * 10000) / 10000;
+  // ค่าที่แสดง = ที่กำลังพิมพ์ ?? รายการวันนี้ ?? ค่าปกติของสินค้า (จำนวน/ราคา แปลงเป็นหน่วยที่กรอก)
   const val = (it) => {
-    const p = single(it.id), d = draft[it.id] || {};
-    const base = p ? { qty: String(p.qty), price: String(p.unit_price ?? ""), amt: String(p.amount ?? ""), am: Math.abs(A(p.qty) * A(p.unit_price) - A(p.amount)) > 0.005, loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
+    const p = single(it.id), d = draft[it.id] || {}, f = fac(it);
+    const base = p ? { qty: String(n4(A(p.qty) / f)), price: p.unit_price == null ? "" : String(n4(A(p.unit_price) * f)), amt: String(p.amount ?? ""), am: Math.abs(A(p.qty) * A(p.unit_price) - A(p.amount)) > 0.005, loc: p.for_loc, paid: p.paid_from, ent: p.paid_entity, inv: p.has_tax_invoice, vendor: p.vendor_name || "" }
       : { qty: "", price: "", amt: "", am: false, loc: it.def_for_loc || "main", paid: it.def_paid_from || "pool", ent: it.def_paid_entity, inv: !!it.def_tax_invoice, vendor: it.def_vendor_name || "" };
     return { ...base, ...d };
   };
   const last = (id) => data.lastBy[id];
   // กรอกยอดรวมเอง (v.am) → ราคาต่อหน่วย = รวม ÷ จำนวน (27 พ.ย. 2569 เหมือนหน้าร้านลาบ)
   const priceOf = (it, v) => (v.am ? (A(v.amt) > 0 && A(v.qty) > 0 ? Math.round((A(v.amt) / A(v.qty)) * 10000) / 10000 : null)
-    : v.price !== "" ? A(v.price) : last(it.id) ? A(last(it.id).unit_price) : null);
+    : v.price !== "" ? A(v.price) : last(it.id) ? n4(A(last(it.id).unit_price) * fac(it)) : null);
   const setD = (id, k, v) => setDraft((x) => ({ ...x, [id]: { ...x[id], [k]: v } }));
 
   // บันทึกแถว (ออกจากช่อง/เปลี่ยนตัวเลือก) — จำนวนว่าง = ลบรายการวันนี้
@@ -176,10 +189,12 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
     if (!p && !(qty > 0)) { setDraft((x) => { const n = { ...x }; if (patch.loc || patch.paid || patch.inv !== undefined || patch.vendor !== undefined) n[it.id] = { ...n[it.id], ...patch }; else delete n[it.id]; return n; }); return; }
     if (qty > 0 && price == null) return;   // ยังไม่มีราคา — รอใส่ราคา (แถวสีส้ม)
     setBusy((b) => ({ ...b, [it.id]: true })); setErr("");
+    if (hasPack(it)) setUm((m) => ({ ...m, [it.id]: packMode(it) }));   // คงหน่วยที่กรอกไว้หลังบันทึก
     try {
       if (!(qty > 0)) chk(await supabase.from("inv_purchases").delete().eq("id", p.id));
       else {
-        const row = { qty, unit_price: price, amount: v.am ? r2(A(v.amt)) : r2(qty * price), for_loc: v.loc, paid_from: v.paid,
+        const f = fac(it);   // เก็บเป็นหน่วยเล็กเสมอ: จำนวน × f · ราคา ÷ f · ยอดเงินเท่าเดิม
+        const row = { qty: n4(qty * f), unit_price: n4(price / f), amount: v.am ? r2(A(v.amt)) : r2(qty * price), for_loc: v.loc, paid_from: v.paid,
           paid_entity: entFor(v.loc, v.paid, v.ent), has_tax_invoice: !!v.inv, vendor_name: (v.vendor || "").trim() || null };
         if (p) chk(await supabase.from("inv_purchases").update({ ...row, updated_at: new Date().toISOString() }).eq("id", p.id));
         else chk(await supabase.from("inv_purchases").insert({ ...row, purchase_date: data.date, item_id: it.id }));
@@ -226,7 +241,8 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
   const renderRow = (it) => {
     const v = val(it), l = last(it.id), lock = locked(it.id), editing = editCat === (it.category || "");
     const price = priceOf(it, v), qty = A(v.qty), tot = v.am ? (A(v.amt) > 0 ? r2(A(v.amt)) : null) : qty > 0 && price != null ? r2(qty * price) : null;
-    const off = qty > 0 && l && A(l.unit_price) > 0 && price != null && Math.abs(price - A(l.unit_price)) / A(l.unit_price) > 0.1;
+    const f = fac(it), lp = l ? A(l.unit_price) * f : 0;
+    const off = qty > 0 && lp > 0 && price != null && Math.abs(price - lp) / lp > 0.1;
     const pend = qty > 0 && price == null;
     const defLoc = it.def_for_loc || "main", defPaid = it.def_paid_from || "pool";
     const chg = (a, b) => (!editing && a !== b ? " chg" : "");
@@ -244,7 +260,8 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
                 if (data.items.some((i) => i.id !== it.id && i.name === x)) { setErr(`มีสินค้าชื่อ "${x}" แล้ว`); return drop(); }
                 saveDef(it, "name", x).then(drop); }} />
             : <b>{it.name}</b>}{changed && <span className="qdot" title="ต่างจากค่าปกติ">●</span>}
-          <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(l.unit_price, 2)}</> : "ยังไม่เคยซื้อ"}</small>
+          <small>{l ? <>เทียบ {dTH(l.purchase_date)} · {fmt(lp, 2)}/{unitOf(it)}</> : "ยังไม่เคยซื้อ"}
+            {hasPack(it) && <> · 1 {it.buy_unit} = {fmt(it.pack_qty)} {it.unit}{f > 1 && qty > 0 ? <> · {fmt(qty)} {it.buy_unit} = {fmt(n4(qty * f))} {it.unit}{price != null ? ` (${fmt(price / f, 2)}/${it.unit})` : ""}</> : null}</>}</small>
           {!editing && <span className="qmore">{showOpt ? "▴" : "⋯"}</span>}</div>
         {showOpt && <div className="qopt">
         <label className={"qv" + ((editing ? it.def_tax_invoice : v.inv) ? " on" : "")}>
@@ -268,12 +285,20 @@ function QuickBuy({ data, reload, setMsg, openForm, newBill }) {
                 onChange={(e) => (editing ? saveDef(it, "def_paid_entity", e.target.value) : (setD(it.id, "ent", e.target.value), commit(it, { ent: e.target.value })))}>
                 {ENTS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>}</span>
         </div></div>}
-        {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · แตะชื่อเพื่อเปลี่ยนชื่อ · {it.unit}</div> : lock ? (
+        {editing ? <div className="qm muted small">กำลังแก้ค่าปกติ · แตะชื่อเพื่อเปลี่ยนชื่อ · หน่วยเล็ก
+            <input className="qpk" aria-label="หน่วยเล็ก" defaultValue={it.unit} onBlur={(e) => { const x = e.target.value.trim(); if (x && x !== it.unit) saveDef(it, "unit", x); }} />
+            · ซื้อเป็น <input className="qpk" aria-label="หน่วยซื้อ" placeholder="ลัง/แพ็ค" defaultValue={it.buy_unit || ""}
+              onBlur={(e) => { const x = e.target.value.trim() || null; if (x !== (it.buy_unit || null)) saveDef(it, "buy_unit", x); }} />
+            ละ <input className="qpk" inputMode="decimal" aria-label="จำนวนต่อหน่วยซื้อ" placeholder="12" defaultValue={it.pack_qty ?? ""}
+              onBlur={(e) => { const x = A(e.target.value) > 0 ? A(e.target.value) : null; if (x !== (it.pack_qty == null ? null : A(it.pack_qty))) saveDef(it, "pack_qty", x); }} /> {it.unit}</div> : lock ? (
           <div className="qm muted small">มี {(today[it.id] || []).length} รายการวันนี้{(today[it.id] || []).some((p) => p.bill_id) ? " (ในบิล)" : ""} — แก้ในตารางด้านล่าง</div>) : (
           <div className="qm">
             <input className="qx" inputMode="decimal" placeholder="—" value={v.qty}
               onChange={(e) => setD(it.id, "qty", e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => draft[it.id] && commit(it)} />
-            <span className="qu">{it.unit}</span>×
+            {hasPack(it)
+              ? <button type="button" className="qu sw" title={`แตะเพื่อสลับ ${it.buy_unit}/${it.unit}`}
+                  onClick={() => { setUm((m) => ({ ...m, [it.id]: !packMode(it) })); setDraft((x) => { const n = { ...x }; if (n[it.id]) { const { qty: _q, price: _p, amt: _a, am: _m, ...r } = n[it.id]; n[it.id] = r; } return n; }); }}>{unitOf(it)}</button>
+              : <span className="qu">{it.unit}</span>}×
             <input className={"qx" + (off ? " off" : "")} inputMode="decimal" placeholder={l ? fmt(l.unit_price, 2) : "ราคา"}
               value={v.am ? (price != null ? String(Math.round(price * 100) / 100) : "") : v.price}
               onChange={(e) => setDraft((x) => ({ ...x, [it.id]: { ...x[it.id], price: e.target.value.replace(/[^0-9.]/g, ""), am: false } }))} onBlur={() => draft[it.id] && commit(it)} />=
@@ -1119,7 +1144,7 @@ function ItemsTab({ data, reload, setMsg }) {
     try {
       for (const id of dirty) {
         const e = edits[id], it = data.itemById[id], row = {};
-        for (const k of ["category", "unit", "tier", "is_active"]) if (k in e && e[k] !== it[k]) row[k] = e[k];
+        for (const k of ["category", "unit", "buy_unit", "pack_qty", "tier", "is_active"]) if (k in e && e[k] !== it[k]) row[k] = e[k];
         if (Object.keys(row).length) chk(await supabase.from("inv_items").update({ ...row, updated_at: new Date().toISOString() }).eq("id", id));
       }
       setEdits({}); setMsg("บันทึกสินค้าแล้ว"); await reload();
@@ -1143,7 +1168,7 @@ function ItemsTab({ data, reload, setMsg }) {
         <div className="bar"><h2 style={{ margin: 0 }}>สินค้า ({data.items.length})</h2>
           <input placeholder="ค้นหา" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginLeft: "auto", width: "10em" }} /></div>
         <div className="scroll"><table className="grid">
-          <thead><tr><th>ชื่อ</th><th style={{ textAlign: "left" }}>หมวด</th><th style={{ textAlign: "left" }}>หน่วย</th><th>นับสิ้นเดือน</th><th>ใช้อยู่</th></tr></thead>
+          <thead><tr><th>ชื่อ</th><th style={{ textAlign: "left" }}>หมวด</th><th style={{ textAlign: "left" }}>หน่วย</th><th style={{ textAlign: "left" }}>ซื้อเป็น (ละกี่หน่วย)</th><th>นับสิ้นเดือน</th><th>ใช้อยู่</th></tr></thead>
           <tbody>{list.map((it) => (
             <tr key={it.id} style={edits[it.id] ? { background: "var(--warn)" } : null}>
               <td>{it.name}{it.is_produced && <span className="tag">ผลิตเอง</span>}</td>
@@ -1151,12 +1176,15 @@ function ItemsTab({ data, reload, setMsg }) {
                 <option value="">—</option>{data.cats.map((c) => <option key={c.name}>{c.name}</option>)}
                 {it.category && !data.cats.some((c) => c.name === it.category) && <option>{it.category}</option>}</select></td>
               <td><input value={val(it, "unit") || ""} onChange={(e) => setE(it.id, "unit", e.target.value)} style={{ width: "5em" }} /></td>
+              <td className="nw"><input placeholder="ลัง" value={val(it, "buy_unit") || ""} onChange={(e) => setE(it.id, "buy_unit", e.target.value.trim() || null)} style={{ width: "4.5em" }} />
+                {" "}<input inputMode="decimal" placeholder="12" value={val(it, "pack_qty") ?? ""} onChange={(e) => setE(it.id, "pack_qty", A(e.target.value) > 0 ? A(e.target.value) : null)} style={{ width: "3.5em" }} /></td>
               <td className="r"><input type="checkbox" checked={val(it, "tier") === 2} onChange={(e) => setE(it.id, "tier", e.target.checked ? 2 : 1)} /></td>
               <td className="r"><input type="checkbox" checked={!!val(it, "is_active")} onChange={(e) => setE(it.id, "is_active", e.target.checked)} /></td>
             </tr>))}</tbody>
         </table></div>
         {dirty.length > 0 && <div className="row"><button disabled={busy} onClick={saveAll}>บันทึก {dirty.length} รายการ</button>
           <button className="ghost" onClick={() => setEdits({})}>ยกเลิก</button></div>}
+        <p className="small muted">หน่วย = หน่วยเล็กที่ใช้ในคลังและตอนเบิก (เช่น ขวด, ถุง) · ซื้อเป็น = หน่วยตอนซื้อ + จำนวนหน่วยเล็กต่อ 1 หน่วยซื้อ (เช่น ลัง 24) — หน้าซื้อของกรอกเป็นลังได้ ระบบแปลงเป็นขวดให้</p>
         <p className="small muted">หมวดใช้เลือกบัญชีต้นทุนของแต่ละร้าน (หมวดที่ร้านนั้นไม่มีคู่บัญชี = ลงเบ็ดเตล็ด)</p>
       </div>
       <div className="card">
