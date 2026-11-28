@@ -1174,6 +1174,90 @@ function ItemsTab({ data, reload, setMsg }) {
   );
 }
 
+/* ── เมนู คชจ.คงที่ (28 พ.ย. 2569 บอสหนึ่ง "แก้เลย" เฟส 1): ค่าเช่า ไฟ น้ำ POS อินเทอร์เน็ต กรอกรายเดือนทุกร้าน
+   เขียนลงตาราง monthly_expenses เหมือนหน้าร้าน · ไม่ลงสมุดบัญชีที่นี่ (หน้าร้านกด "ปิดยอด" ตามเดิม) · ที่ปิดยอดแล้วแก้ไม่ได้ที่นี่ ──
+   เฟส 2 (ยังไม่ทำ): ค่าแรง/ข้าวพนักงาน ดึงจากเช็คชื่อรายวัน */
+const FIXED_BASE = [["6110", "ค่าเช่า"], ["6120", "ค่าไฟ"], ["6130", "ค่าน้ำ"], ["6310", "ค่าบริการเครื่อง POS"], ["6320", "ค่าอินเทอร์เน็ต/โทรศัพท์"]];
+const FIXED_METHODS = [["cash", "สด"], ["transfer", "โอน"]];
+
+function FixedTab({ date, setMsg }) {
+  const period = date.slice(0, 7);
+  const [accs, setAccs] = useState(null), [rows, setRows] = useState(null), [err, setErr] = useState("");
+  const [draft, setDraft] = useState({}), [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    setErr("");
+    try {
+      const codes = ENT_ORDER.flatMap(([e]) => FIXED_BASE.map(([b]) => `${b}-${e}`));
+      const [a, r] = await Promise.all([
+        fetchAll("accounts", "code,name,entity", (q) => q.in("code", codes), "code"),
+        fetchAll("monthly_expenses", "id,entity,account_code,amount,payment_method,is_closed", (q) => q.eq("period", period)),
+      ]);
+      setAccs(a); setRows(r); setDraft({});
+    } catch (e) { setErr(errText(e)); }
+  }, [period]);
+  useEffect(() => { load(); }, [load]);
+
+  const rowMap = useMemo(() => Object.fromEntries((rows || []).map((r) => [`${r.entity}|${r.account_code}`, r])), [rows]);
+  // บันทึกหนึ่งช่อง: มีแถวอยู่แล้ว → แก้ยอด/วิธีจ่าย · ยังไม่มี → เพิ่มแถวใหม่ (ค่าเริ่มต้น สด, ไม่มีใบกำกับ)
+  const persist = async (ent, code, patch) => {
+    const key = `${ent}|${code}`, cur = rowMap[key];
+    if (cur && cur.is_closed) return;
+    setBusy(true);
+    try {
+      const now = new Date().toISOString();
+      if (cur) chk(await supabase.from("monthly_expenses").update({ ...patch, updated_at: now }).eq("entity", ent).eq("period", period).eq("account_code", code));
+      else chk(await supabase.from("monthly_expenses").insert({
+        entity: ent, period, account_code: code, amount: patch.amount ?? 0, payment_method: patch.payment_method || "cash",
+        has_tax_invoice: false, is_closed: false, updated_at: now }));
+      setMsg("บันทึกแล้ว");
+      await load();
+    } catch (e) { setErr(errText(e)); }
+    setBusy(false);
+  };
+  const onAmountBlur = (ent, code) => {
+    const key = `${ent}|${code}`, raw = draft[key], cur = rowMap[key];
+    if (raw === undefined) return;
+    if (!cur && String(raw).trim() === "") { setDraft((d) => { const n = { ...d }; delete n[key]; return n; }); return; }
+    persist(ent, code, { amount: A(raw) });
+  };
+
+  if (!rows || !accs) return err ? <p className="red pad">{err}</p> : <p className="muted pad">กำลังโหลด…</p>;
+  const accByCode = Object.fromEntries(accs.map((a) => [a.code, a]));
+  const lockedAny = rows.some((r) => r.is_closed);
+  return (
+    <div className="card">
+      <div className="bar"><h2 style={{ margin: 0 }}>คชจ.คงที่ เดือน {period}</h2><span className="muted small" style={{ marginLeft: "auto" }}>กรอกยอดรายเดือน · หน้าร้านกด "ปิดยอด" เพื่อลงสมุดบัญชี</span></div>
+      {err && <p className="red">{err}</p>}
+      {lockedAny && <p className="small muted">บางช่องปิดยอดแล้ว แก้ได้ที่หน้าร้านนั้น (เปิดแก้ไขก่อน)</p>}
+      {ENT_ORDER.map(([ent, entName]) => {
+        const list = FIXED_BASE.map(([b, label]) => ({ code: `${b}-${ent}`, label })).filter((x) => accByCode[x.code]);
+        if (!list.length) return null;
+        const total = r2(list.reduce((s, x) => s + A(rowMap[`${ent}|${x.code}`]?.amount), 0));
+        return (
+          <div key={ent} style={{ marginTop: 12 }}>
+            <div className="bar"><h2 style={{ margin: 0, fontSize: "1.05em" }}>{entName}</h2><span className="muted small" style={{ marginLeft: "auto" }}>รวม {fmt(total, 2)} บาท</span></div>
+            {list.map((x) => {
+              const key = `${ent}|${x.code}`, cur = rowMap[key], locked = !!(cur && cur.is_closed);
+              const shown = draft[key] !== undefined ? draft[key] : cur ? String(cur.amount) : "";
+              return (
+                <div className="row" key={key} style={{ alignItems: "center" }}>
+                  <span style={{ flex: "1 1 180px" }}>{x.label} <span className="small muted">{x.code}</span></span>
+                  <input className="num" inputMode="decimal" placeholder="0" disabled={locked || busy} value={shown} style={{ width: 120 }}
+                    onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value.replace(/[^0-9.]/g, "") }))}
+                    onBlur={() => onAmountBlur(ent, x.code)} />
+                  <select disabled={locked || busy} value={cur ? cur.payment_method : "cash"}
+                    onChange={(e) => persist(ent, x.code, { payment_method: e.target.value })}>
+                    {FIXED_METHODS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  {locked && <span className="small muted">ปิดยอดแล้ว</span>}
+                </div>);
+            })}
+          </div>);
+      })}
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(undefined);
   const [date, setDate] = useState(() => initialDate(todayTH())), [tab, setTab] = useState("ov");
@@ -1196,7 +1280,7 @@ function App() {
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(""), 4000); return () => clearTimeout(t); } }, [msg]);
   if (session === undefined) return <p className="muted pad">กำลังโหลด…</p>;
   if (!session) return <Login />;
-  const TABS = [["ov", "ภาพรวม"], ["buy", "ซื้อของ"], ["stock", "สต๊อก"], ["items", "สินค้า"]];
+  const TABS = [["ov", "ภาพรวม"], ["buy", "ซื้อของ"], ["fixed", "คชจ.คงที่"], ["stock", "สต๊อก"], ["items", "สินค้า"]];
   const p = { data, reload, setMsg, setTab, billId, setBillId, setDate };
   return (
     <>
@@ -1214,7 +1298,7 @@ function App() {
       {msg && <div className="toast">{msg}</div>}
       {err && <p className="red pad">โหลดข้อมูลไม่ได้: {err} <button className="link" onClick={() => location.reload()}>รีเฟรช</button></p>}
       {!data ? (!err && <p className="muted pad">กำลังโหลด…</p>) : (
-        tab === "ov" ? <OverviewTab {...p} /> : tab === "buy" ? <BuyTab {...p} /> : tab === "stock" ? <StockTab {...p} /> : <ItemsTab {...p} />)}
+        tab === "ov" ? <OverviewTab {...p} /> : tab === "buy" ? <BuyTab {...p} /> : tab === "fixed" ? <FixedTab date={date} setMsg={setMsg} /> : tab === "stock" ? <StockTab {...p} /> : <ItemsTab {...p} />)}
       <p className="muted small pad">ผู้ใช้: {session.user.email} · <button className="link" onClick={() => supabase.auth.signOut()}>ออกจากระบบ</button></p>
     </>
   );
